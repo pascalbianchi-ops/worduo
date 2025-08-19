@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useGame } from '../state/GameContext'
 import { setServerUrl, getCurrentServerUrl } from '../lib/socket'
 
@@ -30,6 +30,15 @@ type RoomInfo = {
     color: string
     host: string
     waitingFor: 'meneur' | 'devineur'
+}
+
+// Style commun pour fiabiliser les taps mobiles (iOS/Android)
+const tapStyle: CSSProperties = {
+    touchAction: 'manipulation',
+    WebkitTapHighlightColor: 'transparent',
+    WebkitUserSelect: 'none',
+    userSelect: 'none',
+    cursor: 'pointer',
 }
 
 function Fireworks() {
@@ -218,7 +227,7 @@ export function Lobby() {
                                     style={{ flex: 1, minWidth: 280 }}
                                 />
                             )}
-                            <button className="btn btn-ghost" onClick={applyServer}>Appliquer</button>
+                            <button className="btn btn-ghost" onClick={applyServer} style={tapStyle}>Appliquer</button>
                         </div>
                         <div className="card-sub" style={{ marginTop: 8 }}>
                             Actuel : <b>{initialUrl}</b>
@@ -231,7 +240,7 @@ export function Lobby() {
                     <div className="row" style={{ alignItems: 'center' }}>
                         <div style={{ minWidth: 120 }} className="card-sub">Pseudo</div>
                         <input className="input" value={pseudo} onChange={e => setPseudo(e.target.value)} placeholder="Ton pseudo…" style={{ flex: 1 }} />
-                        <button className="btn btn-primary" onClick={onPlay} disabled={!pseudo.trim()}>
+                        <button className="btn btn-primary" onClick={onPlay} disabled={!pseudo.trim()} style={tapStyle}>
                             Jouer
                         </button>
                     </div>
@@ -269,6 +278,7 @@ export function Lobby() {
                                         className="btn btn-ghost"
                                         disabled={!ready}
                                         onClick={() => joinDirect(r.id, 'giver')}
+                                        style={tapStyle}
                                     >
                                         Rejoindre en Meneur
                                     </button>
@@ -276,6 +286,7 @@ export function Lobby() {
                                         className="btn btn-ghost"
                                         disabled={!ready}
                                         onClick={() => joinDirect(r.id, 'guesser')}
+                                        style={tapStyle}
                                     >
                                         Rejoindre en Devineur
                                     </button>
@@ -301,15 +312,27 @@ export function Lobby() {
                         <div className="row" style={{ alignItems: 'center' }}>
                             <div style={{ minWidth: 120 }} className="card-sub">Salon</div>
 
-                            <div className="segment">
-                                <div
+                            <div className="segment" role="tablist" aria-label="Mode de sélection du salon">
+                                <button
+                                    type="button"
                                     className={`seg ${roomMode === 'preset' ? 'active' : ''}`}
                                     onClick={() => setRoomMode('preset')}
-                                >Liste</div>
-                                <div
+                                    aria-pressed={roomMode === 'preset'}
+                                    aria-label="Liste de salons prédéfinis"
+                                    style={tapStyle}
+                                >
+                                    Liste
+                                </button>
+                                <button
+                                    type="button"
                                     className={`seg ${roomMode === 'custom' ? 'active' : ''}`}
                                     onClick={() => setRoomMode('custom')}
-                                >Personnalisé</div>
+                                    aria-pressed={roomMode === 'custom'}
+                                    aria-label="Salon personnalisé"
+                                    style={tapStyle}
+                                >
+                                    Personnalisé
+                                </button>
                             </div>
 
                             {roomMode === 'preset' ? (
@@ -324,7 +347,7 @@ export function Lobby() {
                                             <option key={name} value={name}>{name}</option>
                                         ))}
                                     </select>
-                                    <button className="btn btn-ghost" onClick={diceRoom} title="Choisir au hasard">🎲</button>
+                                    <button className="btn btn-ghost" onClick={diceRoom} title="Choisir au hasard" style={tapStyle}>🎲</button>
                                 </>
                             ) : (
                                 <input
@@ -339,7 +362,7 @@ export function Lobby() {
                     </div>
 
                     <div className="row" style={{ marginTop: 12 }}>
-                        <button className="btn btn-primary" onClick={join} disabled={!ready}>Rejoindre (Meneur)</button>
+                        <button className="btn btn-primary" onClick={join} disabled={!ready} style={tapStyle}>Rejoindre (Meneur)</button>
                         <span className="card-sub">Astuce : tape <span className="kbd">Entrée</span></span>
                     </div>
                     {!ready && <div style={{ marginTop: 6, fontSize: 12, opacity: .75 }}>Saisis ton pseudo puis clique « Jouer ».</div>}
