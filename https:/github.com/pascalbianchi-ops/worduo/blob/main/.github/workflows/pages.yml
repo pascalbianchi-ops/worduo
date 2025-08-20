@@ -28,10 +28,13 @@ jobs:
           cache: npm
 
       - name: Install deps
-        run: npm ci
+        run: npm ci   # (si tu n’as pas de package-lock.json, remplace par: npm install)
 
       - name: Build
         run: npm run build
+
+      - name: SPA fallback (copy index -> 404)
+        run: cp dist/index.html dist/404.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
