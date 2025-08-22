@@ -25,16 +25,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: 'npm'
 
       - name: Install deps
-        run: npm ci   # (si tu n’as pas de package-lock.json, remplace par: npm install)
+        run: npm ci
 
       - name: Build
         run: npm run build
 
       - name: SPA fallback (copy index -> 404)
         run: cp dist/index.html dist/404.html
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
