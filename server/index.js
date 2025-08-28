@@ -401,7 +401,7 @@ app.get(/^\/(?!api|socket\.io|health|__debug).*/, (_req, res) => {
         res.status(503).type('text/plain').send('Frontend not built yet.')
     }
 })
-
+app.get('/healthz', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }))
 // ---------- Lancement ----------
 const PORT = process.env.PORT || 3000
 server.listen(PORT, '0.0.0.0', () => {
