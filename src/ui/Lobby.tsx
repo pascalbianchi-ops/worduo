@@ -1,8 +1,36 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { useGame } from '../state/GameContext'
 import { setServerUrl, getCurrentServerUrl } from '../lib/socket'
 
-// Presets serveur pour le menu déroulant
+// ===== Helpers HTTP locaux (même base que le socket) =====
+function normalizeBase(u: string) {
+    return (u || '').trim().replace(/\/+$/, '')
+}
+function join(base: string, path: string) {
+    return `${normalizeBase(base)}/${String(path).replace(/^\/+/, '')}`
+}
+function getApiBase(): string {
+    const stored = (typeof window !== 'undefined' && localStorage.getItem('serverUrl')) || ''
+    return stored ? normalizeBase(stored) : (typeof window !== 'undefined' ? window.location.origin : '')
+}
+async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+    const url = join(getApiBase(), path)
+    const res = await fetch(url, { cache: 'no-store', ...init })
+    if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(`HTTP ${res.status} on ${url} – ${txt.slice(0, 120)}`)
+    }
+    const ct = res.headers.get('content-type') || ''
+    if (!ct.includes('application/json')) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(`Expected JSON from ${url}, got "${ct}". Body: ${txt.slice(0, 120)}`)
+    }
+    return res.json() as Promise<T>
+}
+// ===== fin helpers =====
+
+// Presets serveur
 const SERVER_PRESETS = [
     { label: 'Local (localhost:3000)', value: 'http://localhost:3000' },
     { label: 'Production (api.mondomaine.com)', value: 'https://api.mondomaine.com' },
@@ -32,7 +60,7 @@ type RoomInfo = {
     waitingFor: 'meneur' | 'devineur'
 }
 
-// Style commun pour fiabiliser les taps mobiles (iOS/Android)
+// Style taps mobiles
 const tapStyle: CSSProperties = {
     touchAction: 'manipulation',
     WebkitTapHighlightColor: 'transparent',
@@ -72,22 +100,21 @@ export function Lobby() {
     const effectiveServerUrl = serverPreset === 'custom' ? customServerUrl : serverPreset
 
     const applyServer = () => {
-        if (!effectiveServerUrl) return alert('URL serveur vide.')
-        setServerUrl(effectiveServerUrl)
-        window.location.reload() // recrée le socket sur la bonne URL
+        const url = normalizeBase(effectiveServerUrl || '')
+        if (!url) return alert('URL serveur vide.')
+        setServerUrl(url)
+        window.location.reload()
     }
 
-    // --- Sélection room (menu déroulant + personnalisé) ---
+    // --- Sélection room ---
     const savedRoomPreset = (localStorage.getItem('roomPreset') as string) || 'preset'
     const savedCustomRoom = localStorage.getItem('customRoom') || ''
     const [roomMode, setRoomMode] = useState<'preset' | 'custom'>(savedRoomPreset === 'custom' ? 'custom' : 'preset')
     const [roomPreset, setRoomPreset] = useState<string>(SALONS.includes(savedCustomRoom) ? savedCustomRoom : randomSalon())
     const [roomCustom, setRoomCustom] = useState<string>(roomMode === 'custom' ? (savedCustomRoom || '') : '')
 
-    // valeur finale de la room à envoyer
     const room = roomMode === 'custom' ? (roomCustom || '') : roomPreset
 
-    // persistance locale des choix de room
     useEffect(() => {
         localStorage.setItem('roomPreset', roomMode)
         localStorage.setItem('customRoom', roomMode === 'custom' ? roomCustom : roomPreset)
@@ -98,7 +125,7 @@ export function Lobby() {
         setRoomPreset(randomSalon())
     }
 
-    // --- Pseudo + "Jouer" (déverrouille les actions) ---
+    // --- Pseudo + Jouer ---
     const [pseudo, setPseudo] = useState<string>('')
     const [ready, setReady] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -121,9 +148,7 @@ export function Lobby() {
         let stop = false
         const load = async () => {
             try {
-                const r = await fetch('/api/rooms', { cache: 'no-store' })
-                if (!r.ok) throw new Error(`HTTP ${r.status}`)
-                const j = (await r.json()) as { rooms: RoomInfo[] }
+                const j = await api<{ rooms: RoomInfo[] }>('/api/rooms')
                 if (!stop) {
                     setRooms(j.rooms)
                     setErrRooms(null)
@@ -173,7 +198,6 @@ export function Lobby() {
         })
     }
 
-    // Entrée = Rejoindre la sélection
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter') join() }
         window.addEventListener('keydown', onKey)
@@ -301,7 +325,7 @@ export function Lobby() {
                     </ul>
                 </aside>
 
-                {/* Sélection manuelle (section d'origine) */}
+                {/* Sélection manuelle */}
                 <section className="card pop" style={{ gridColumn: '1 / span 2' }}>
                     <h3 className="card-title">Créer ou rejoindre manuellement</h3>
                     <div className="card-sub">Choisis un salon dans la liste, ou saisis un nom personnalisé.</div>

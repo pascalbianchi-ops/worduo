@@ -1,6 +1,32 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useGame } from '../state/GameContext'
-import { getWords, getWordsStatic } from '../api/getWords'
+
+// ===== Helpers HTTP (même base que le socket) =====
+function normalizeBase(u: string) {
+    return (u || '').trim().replace(/\/+$/, '')
+}
+function join(base: string, path: string) {
+    return `${normalizeBase(base)}/${String(path).replace(/^\/+/, '')}`
+}
+function getApiBase(): string {
+    const stored = (typeof window !== 'undefined' && localStorage.getItem('serverUrl')) || ''
+    return stored ? normalizeBase(stored) : (typeof window !== 'undefined' ? window.location.origin : '')
+}
+async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+    const url = join(getApiBase(), path)
+    const res = await fetch(url, { cache: 'no-store', ...init })
+    if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(`HTTP ${res.status} on ${url} – ${txt.slice(0, 120)}`)
+    }
+    const ct = res.headers.get('content-type') || ''
+    if (!ct.includes('application/json')) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(`Expected JSON from ${url}, got "${ct}". Body: ${txt.slice(0, 120)}`)
+    }
+    return res.json() as Promise<T>
+}
+// ===== fin helpers =====
 
 function Confetti() {
     const pieces = useMemo(() => {
@@ -35,23 +61,27 @@ export function Giver() {
     useEffect(() => {
         let cancelled = false
             ; (async () => {
+                setLoadingWords(true)
                 try {
-                    const { words } = await getWords({
-                        count: 5000,
-                        minLen: 4,
-                        maxLen: 10,
-                        allowHyphen: false,
-                        common: true,
-                        mode: 'core',           // ← pioche d'abord dans le "core" courant
-                        onlyInfinitive: false   // passe à true si tu veux plutôt des verbes simples
-                    })
-                    if (!cancelled) { setBank(words); setLoadErr(null) }
-                } catch {
+                    // 1) core (mots “simples” d’abord)
+                    const core = await api<{ count: number; words: string[] }>(
+                        '/api/words?count=5000&minLen=4&maxLen=10&allowHyphen=false&common=true&mode=core&onlyInfinitive=false'
+                    )
+                    if (!cancelled) { setBank(core.words); setLoadErr(null) }
+                } catch (e1: any) {
                     try {
-                        const list = await getWordsStatic()
-                        if (!cancelled) { setBank(list); setLoadErr(null) }
-                    } catch (e: any) {
-                        if (!cancelled) setLoadErr(e?.message ?? 'Erreur de chargement des mots')
+                        // 2) fallback: corpus complet
+                        const all = await api<{ count: number; words: string[] }>(
+                            '/api/words?count=5000&minLen=4&maxLen=10&allowHyphen=false&common=true&mode=all&onlyInfinitive=false'
+                        )
+                        if (!cancelled) { setBank(all.words); setLoadErr(null) }
+                    } catch (e2: any) {
+                        // 3) secours local minimal (pour ne pas bloquer l'UI)
+                        const fallback = ['maison', 'voiture', 'fromage', 'banane', 'internet', 'lampe', 'montagne', 'océan', 'ordinateur', 'musique']
+                        if (!cancelled) {
+                            setBank(fallback)
+                            setLoadErr(e2?.message || e1?.message || 'Erreur de chargement des mots')
+                        }
                     }
                 } finally {
                     if (!cancelled) setLoadingWords(false)
@@ -69,7 +99,7 @@ export function Giver() {
     const start = () => {
         const chosen = pickWord()
         if (!chosen) return
-        socket.emit('game:start', { roomId: state.roomId, word: chosen }, (ack: any) => { })
+        socket.emit('game:start', { roomId: state.roomId, word: chosen }, () => { })
         setState(prev => ({
             ...prev,
             word: chosen,
