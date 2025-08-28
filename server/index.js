@@ -4,26 +4,66 @@ import http from 'http'
 import cors from 'cors'
 import { Server } from 'socket.io'
 import { createRequire } from 'module'
-import path from 'path'
+import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
+import fs from 'fs'
+
+// --- AJOUT tout en haut (après tes imports) ---
+const BUILD_TAG = 'worduo-v10-' + new Date().toISOString();
+console.log('[BOOT] starting', BUILD_TAG);
 
 const require2 = createRequire(import.meta.url)
 const wordsAll = require2('an-array-of-french-words')
 
-console.log('=== DEVINE SERVER v6 (core words) ===')
+console.log('=== DEVINE SERVER v8 (Render + static + API + sockets) ===')
 
 // ---------- App / HTTP / Socket ----------
 const app = express()
-app.use(cors())
+app.use(cors())           // si besoin, restreins origin ici
+app.use(express.json())
+
 const server = http.createServer(app)
-const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } })
+const io = new Server(server, {
+    cors: { origin: '*', methods: ['GET', 'POST'] },
+    path: '/socket.io',
+})
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const distDir = path.join(__dirname, '../dist')
-app.use(express.static(distDir))                   // sert /dist
-app.get('/', (_req, res) => res.sendFile(path.join(distDir, 'index.html')))
+// --------- Trouver et servir le dossier du build Vite ---------
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const rootDist = path.join(__dirname, '../dist')
+const clientDist = path.join(__dirname, '../client/dist')
+const distDir = fs.existsSync(clientDist) ? clientDist : rootDist
 
-// ---------- Utils ----------
+console.log('[STATIC] distDir =', distDir, 'exists =', fs.existsSync(distDir))
+
+// Endpoint debug (vérifier que Render voit bien les fichiers)
+app.get('/__debug', (_req, res) => {
+    res.json({
+        distDir,
+        exists: fs.existsSync(distDir),
+        files: fs.existsSync(distDir) ? fs.readdirSync(distDir) : []
+    })
+})
+// AJOUT: route de test unique
+app.get('/__debug_v10', (_req, res) => {
+    res.json({
+        ok: true,
+        tag: BUILD_TAG,
+        distDir,
+        exists: fs.existsSync(distDir),
+        files: fs.existsSync(distDir) ? fs.readdirSync(distDir) : []
+    });
+});
+
+// Sert les fichiers statiques du front
+if (fs.existsSync(distDir)) {
+    app.use(express.static(distDir))
+}
+
+// ---------- Routes de santé ----------
+app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }))
+
+// ==================== OUTILS / JEU ====================
 function shuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
@@ -31,9 +71,7 @@ function shuffle(arr) {
     }
     return arr
 }
-function unique(arr) {
-    return Array.from(new Set(arr))
-}
+function unique(arr) { return Array.from(new Set(arr)) }
 function normalize(s) {
     return (s ?? '')
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -52,10 +90,10 @@ function hasThreeConsecutive(hint, word) {
 function isCleanWord(w, { allowHyphen, minLen = 6, maxLen = 12 }) {
     if (!w || typeof w !== 'string') return false
     const s = String(w).trim().toLowerCase()
-    if (!s || s.includes(' ') || s.includes('_')) return false   // un seul mot
+    if (!s || s.includes(' ') || s.includes('_')) return false
     if (s.length < minLen || s.length > maxLen) return false
     if (!allowHyphen && s.includes('-')) return false
-    if (s.includes("'") || s.includes('’')) return false // évite l’élision
+    if (s.includes("'") || s.includes('’')) return false
     if (!/^[a-zàâçéèêëîïôùûüÿœ\-]+$/i.test(s)) return false
     return true
 }
@@ -78,54 +116,37 @@ function isInfinitive(s) {
 // --- Wordset "core" embarqué (extensible via server/data/core_fr.json) ---
 let CORE_WORDS = []
 try {
-    // si tu crées server/data/core_fr.json (["maison","voiture",..."]), il sera pris automatiquement
     CORE_WORDS = require2('./data/core_fr.json')
 } catch (_) {
     CORE_WORDS = [
-        // vie quotidienne
         'maison', 'appartement', 'porte', 'fenetre', 'cle', 'chaise', 'table', 'lit', 'cuisine', 'salon', 'jardin',
         'ecole', 'bureau', 'travail', 'magasin', 'marche', 'banque', 'hopital', 'police', 'juge', 'avocat',
         'famille', 'ami', 'enfant', 'mere', 'pere', 'frere', 'soeur', 'voisin',
-        // objets / techno
         'voiture', 'moteur', 'roue', 'velo', 'train', 'avion', 'bateau', 'ordinateur', 'telephone', 'internet',
         'photo', 'musique', 'film', 'jeu', 'radio', 'television', 'lampe', 'papier', 'stylo', 'livre', 'cahier',
-        // aliments
         'pain', 'fromage', 'beurre', 'lait', 'sucre', 'sel', 'poivre', 'eau', 'cafe', 'the', 'chocolat', 'gateau',
         'pomme', 'poire', 'banane', 'orange', 'citron', 'tomate', 'carotte', 'oignon', 'poisson', 'poulet', 'viande', 'riz', 'pates',
-        // nature / meteo
         'soleil', 'lune', 'etoile', 'ciel', 'nuage', 'pluie', 'neige', 'vent', 'orage', 'mer', 'plage', 'montagne', 'foret', 'arbre', 'fleur', 'terre', 'feu', 'air',
-        // ville / lieux
         'rue', 'route', 'pont', 'parc', 'place', 'eglise', 'gare', 'hotel', 'restaurant', 'cafe', 'ecole', 'bibliotheque',
-        // temps / notions simples
         'matin', 'midi', 'soir', 'nuit', 'jour', 'semaine', 'mois', 'annee', 'heure', 'minute',
-        // actions (infinitifs courants)
         'manger', 'boire', 'aller', 'venir', 'faire', 'dire', 'voir', 'prendre', 'mettre', 'donner', 'parler', 'ecouter', 'lire', 'ecrire', 'jouer', 'marcher', 'courir', 'ouvrir', 'fermer',
         'acheter', 'vendre', 'payer', 'aider', 'chercher', 'trouver', 'regarder', 'voyager', 'dormir', 'rire', 'sourire', 'apprendre', 'comprendre',
-        // notions abstraites accessibles
         'argent', 'prix', 'cadeau', 'fete', 'idee', 'projet', 'groupe', 'equipe', 'histoire', 'image', 'couleur',
-        // énergie
         'electricite', 'energie', 'batterie', 'lampe', 'lumiere'
     ]
 }
 
-// Construit une sélection depuis le corpus brut
 function buildPool({ minLen = 6, maxLen = 12, allowHyphen = true, common = false, onlyInfinitive = false, exclude = new Set() }) {
     let pool = wordsAll.filter(w =>
         isCleanWord(w, { allowHyphen, minLen, maxLen }) &&
         !exclude.has(String(w).toLowerCase())
     )
-    if (common) {
-        pool = pool.filter(w => !looksConjugatedVerb(String(w)))
-    }
-    if (onlyInfinitive) {
-        pool = pool.filter(isInfinitive)
-    }
+    if (common) pool = pool.filter(w => !looksConjugatedVerb(String(w)))
+    if (onlyInfinitive) pool = pool.filter(isInfinitive)
     shuffle(pool)
-    if (common) pool.sort((a, b) => a.length - b.length) // courts d'abord
+    if (common) pool.sort((a, b) => a.length - b.length)
     return pool
 }
-
-// pioche par défaut : core-friendly
 function pickWord(minLen = 6, maxLen = 10, allowHyphen = false, common = true) {
     const pool = buildPool({ minLen, maxLen, allowHyphen, common })
     if (!pool.length) return 'MYSTERE'
@@ -135,7 +156,6 @@ function pickWord(minLen = 6, maxLen = 10, allowHyphen = false, common = true) {
 // ---------- Rooms / mémoire ----------
 /** roomId -> { word, status, giverId, guesserId, attempts, maxAttempts } */
 const rooms = new Map()
-
 function roomMembersOf(roomId) { return io.sockets.adapter.rooms.get(roomId) || new Set() }
 function pruneGhosts(roomId) {
     const r = rooms.get(roomId); if (!r) return
@@ -143,7 +163,6 @@ function pruneGhosts(roomId) {
     if (r.giverId && !members.has(r.giverId)) r.giverId = null
     if (r.guesserId && !members.has(r.guesserId)) r.guesserId = null
 }
-
 const SALONS = [
     'Salon Écarlate', 'Salon Indigo', 'Salon Turquoise', 'Salon Citron Vert',
     'Salon Émeraude', 'Salon Lavande', 'Salon Safran', 'Salon Cramoisi',
@@ -166,12 +185,9 @@ function findFreeRoomForRole(role) {
     return `Salon ${Math.floor(1000 + Math.random() * 9000)}`
 }
 
-// ---------- API HTTP ----------
-app.get('/', (_req, res) => res.type('text/plain').send('OK – Socket.IO on /socket.io'))
-app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }))
+// ==================== API HTTP ====================
 
 // Liste de mots
-// Params: count, minLen, maxLen, allowHyphen=false, common=true|false, mode=core|all, onlyInfinitive=true|false, exclude=a,b,c
 app.get('/api/words', (req, res) => {
     const count = Math.min(parseInt(String(req.query.count ?? '5000'), 10) || 5000, 20000)
     const minLen = parseInt(String(req.query.minLen ?? '6'), 10) || 6
@@ -183,7 +199,6 @@ app.get('/api/words', (req, res) => {
     const excludeRaw = String(req.query.exclude || '')
     const exclude = new Set(excludeRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean))
 
-    // 1) core (très simple) + 2) fallback depuis corpus nettoyé
     let core = CORE_WORDS.filter(w =>
         isCleanWord(w, { allowHyphen, minLen, maxLen }) &&
         !exclude.has(String(w).toLowerCase()) &&
@@ -191,10 +206,10 @@ app.get('/api/words', (req, res) => {
     )
 
     let fallback = buildPool({ minLen, maxLen, allowHyphen, common, onlyInfinitive, exclude })
-    // Priorité au core
-    let pool = (mode === 'core')
-        ? unique([...core, ...fallback])
-        : fallback
+    let pool = (mode === 'core') ? unique([...core, ...fallback]) : fallback
+    // si pas de build:
+    res.status(503).type('text/plain').send(`Frontend not built yet. ${BUILD_TAG}`);
+
 
     shuffle(pool)
     const out = pool.slice(0, count)
@@ -225,7 +240,7 @@ app.get('/api/rooms', (_req, res) => {
     res.json({ rooms: out })
 })
 
-// ---------- Socket.IO ----------
+// ==================== Socket.IO ====================
 io.on('connection', (socket) => {
     socket.on('game:join', ({ roomId, role, pseudo }, ack) => {
         if (!roomId || !role) return ack?.({ ok: false, code: 'BAD_INPUT', message: 'Room/role invalides.' })
@@ -377,8 +392,18 @@ io.on('connection', (socket) => {
     })
 })
 
+// ---------- SPA fallback ----------
+// Toute route qui n’est pas /api, /socket.io, /health, /__debug => index.html
+app.get(/^\/(?!api|socket\.io|health|__debug).*/, (_req, res) => {
+    if (fs.existsSync(distDir)) {
+        res.sendFile(path.join(distDir, 'index.html'))
+    } else {
+        res.status(503).type('text/plain').send('Frontend not built yet.')
+    }
+})
+
 // ---------- Lancement ----------
 const PORT = process.env.PORT || 3000
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Socket server on http://localhost:${PORT}`)
+    console.log(`Server listening on http://0.0.0.0:${PORT}`)
 })
