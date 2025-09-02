@@ -22,21 +22,24 @@ function isHostedProd(): boolean {
  * - En dev => localStorage > variables Vite > fallback localhost
  */
 function resolveUrl(): string {
-  if (isHostedProd()) return '' // même origine (ex: https://worduo.onrender.com)
+  // PROD : même origine + purge de toute config persistée
+  if (isHostedProd()) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('serverUrl')
+      }
+    } catch {}
+    return '' // même origine (ex: https://worduo.onrender.com)
+  }
 
+  // DEV
   const stored =
     (typeof localStorage !== 'undefined' && localStorage.getItem('serverUrl')) || ''
 
-  // Variables Vite optionnelles
   const env =
     (import.meta as any).env?.VITE_SOCKET_URL ||
     (import.meta as any).env?.VITE_SERVER_URL ||
     ''
-
-  // Si la page est en https, on évite de retourner un http://localhost qui casserait en prod
-  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\/localhost/i.test(stored)) {
-    return ''
-  }
 
   return (stored || env || 'http://localhost:3000').trim()
 }
@@ -48,7 +51,8 @@ export function getCurrentServerUrl(): string {
 
 /** Définit l'URL serveur et invalide le socket courant (sera recréé au prochain getSocket) */
 export function setServerUrl(url: string) {
-  if (typeof localStorage !== 'undefined') {
+  // En prod on ignore toute tentative de forcer l'URL
+  if (!isHostedProd() && typeof localStorage !== 'undefined') {
     localStorage.setItem('serverUrl', url)
   }
   if (socket) {
@@ -60,12 +64,13 @@ export function setServerUrl(url: string) {
 
 /** Singleton Socket.IO (autoConnect: false). Appelle socket.connect() ailleurs (GameContext). */
 export function getSocket(urlOverride?: string): Socket {
-  const url = (isHostedProd() ? '' : (urlOverride || resolveUrl()))
+  const url = (urlOverride ?? resolveUrl())
+
   if (!socket || currentUrl !== url) {
     if (socket) socket.disconnect()
     socket = io(url, {
       autoConnect: false,
-      transports: ['websocket'],
+      // Ne pas forcer uniquement 'websocket' → laisse le fallback 'polling' si besoin
       path: SOCKET_PATH,
       // withCredentials: false, // à activer si vous utilisez des cookies
     })
