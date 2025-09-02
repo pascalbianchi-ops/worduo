@@ -6,6 +6,7 @@ let currentUrl: string | null = null
 
 const SOCKET_PATH = '/socket.io'
 
+// ——— Helpers
 function isHostedProd(): boolean {
   if (typeof window === 'undefined') return false
   const { protocol, host } = window.location
@@ -17,14 +18,13 @@ function isLocalHostName(h: string) {
 
 /** Résout l'URL base du socket */
 function resolveUrl(): string {
-  // PROD → URL ABSOLUE sur la même origine
+  // PROD → même origine (absolue) + purge toute config persistée
   if (isHostedProd()) {
     try { localStorage.removeItem('serverUrl') } catch {}
-    if (typeof window !== 'undefined') return window.location.origin // ex: https://worduo.onrender.com
-    return ''
+    return typeof window !== 'undefined' ? window.location.origin : ''
   }
 
-  // DEV
+  // DEV → localStorage > .env > fallback localhost
   const stored = (typeof localStorage !== 'undefined' && localStorage.getItem('serverUrl')) || ''
   const env =
     (import.meta as any).env?.VITE_SOCKET_URL ||
@@ -50,18 +50,15 @@ export function setServerUrl(url: string) {
 export function getSocket(urlOverride?: string): Socket {
   let url = (urlOverride ?? resolveUrl()).trim()
 
-  // Interdiction totale de localhost quand la page n'est pas locale
+  // Interdiction de cibler localhost si la page n'est pas locale
   if (typeof window !== 'undefined' && !isLocalHostName(window.location.hostname)) {
-    if (/^https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?/i.test(url)) {
-      console.warn('[socket] Blocking localhost target on prod, forcing same-origin')
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?/i.test(url) || url === '') {
       try { localStorage.removeItem('serverUrl') } catch {}
-      url = window.location.origin
+      url = window.location.origin // force même origine en prod
     }
-    // Si l'URL est vide (''), on force aussi l’origin complète
-    if (url === '') url = window.location.origin
   }
 
-  // Log de debug
+  // Debug utile : vérifie la cible dans la console
   if (typeof window !== 'undefined') {
     console.log('[socket] location=', window.location.href, '→ target=', url)
   }
@@ -71,9 +68,8 @@ export function getSocket(urlOverride?: string): Socket {
     socket = io(url, {
       autoConnect: false,
       path: SOCKET_PATH,
+      // ne pas forcer ['websocket'] : laisser le fallback 'polling'
       withCredentials: false,
-      // ne pas forcer transports → laisser polling/websocket
-      // transports: ['websocket'], // (laisser commenté)
     })
     currentUrl = url
   }
