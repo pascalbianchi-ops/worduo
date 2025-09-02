@@ -1,82 +1,55 @@
-// --- server/index.js (ESM) ---
+// --- server/index.js ---
 import express from 'express'
 import http from 'http'
 import cors from 'cors'
 import { Server } from 'socket.io'
-import { createRequire } from 'module'
 import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
-import fs from 'fs'
 
-// --- Tag de build ---
-const BUILD_TAG = 'worduo-v10-' + new Date().toISOString()
-console.log('[BOOT] starting', BUILD_TAG)
-
-const require2 = createRequire(import.meta.url)
-const wordsAll = require2('an-array-of-french-words')
-
-console.log('=== WORDUO SERVER (Render + static + API + sockets) ===')
-
-// ---------- App / HTTP / Socket ----------
+const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
-app.use(cors({ origin: '*', methods: ['GET', 'POST'] }))
+app.use(cors())
 app.use(express.json())
 
+// ==== API D'ABORD (avant le static & le catch-all) ====
+
+// petit in-memory pour tester
+const rooms = new Map()            // id -> { id, name, players: number }
+app.get('/api/health', (req, res) => res.json({ ok: true }))
+app.get('/api/rooms', (req, res) => {
+  const list = Array.from(rooms.values())
+  res.json({ rooms: list })
+})
+// (optionnel) création de room pour test rapide
+app.post('/api/rooms', (req, res) => {
+  const id = String(Date.now())
+  const name = req.body?.name || `Salon-${id.slice(-4)}`
+  rooms.set(id, { id, name, players: 0 })
+  res.status(201).json({ id })
+})
+
+// ==== Socket.IO ====
 const server = http.createServer(app)
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
   path: '/socket.io',
+  cors: { origin: '*', methods: ['GET','POST'] }
 })
+// ... tes handlers socket ici ...
 
-// --------- Trouver et servir le dossier du build Vite ---------
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const rootDist = path.join(__dirname, '../dist')
-const clientDist = path.join(__dirname, '../client/dist')
-const distDir = fs.existsSync(clientDist) ? clientDist : rootDist
+// ==== Static (Vite build) ====
+const distDir = path.join(__dirname, '..', 'dist')
+app.use(express.static(distDir))
 
-console.log('[STATIC] distDir =', distDir, 'exists =', fs.existsSync(distDir))
-
-// Debug endpoints
-app.get('/__debug', (_req, res) => {
-  res.json({
-    ok: true,
-    tag: BUILD_TAG,
-    distDir,
-    exists: fs.existsSync(distDir),
-    files: fs.existsSync(distDir) ? fs.readdirSync(distDir) : []
-  })
-})
-
-// Sert les fichiers statiques du front
-if (fs.existsSync(distDir)) {
-  app.use(express.static(distDir))
-}
-
-// ---------- Health check ----------
-app.get('/health', (_req, res) =>
-  res.json({ ok: true, time: new Date().toISOString() })
-)
-app.get('/healthz', (_req, res) =>
-  res.json({ ok: true, time: new Date().toISOString() })
-)
-
-// ==================== LOGIQUE DU JEU (inchangée) ====================
-// … (tes fonctions shuffle, normalize, pickWord, etc.)
-// … (tes routes /api/words, /api/rooms)
-// … (tes sockets io.on('connection', ...))
-
-// ---------- SPA fallback ----------
-// Toute route qui n’est pas /api, /socket.io, /health, /__debug => index.html
-app.get(/^\/(?!api|socket\.io|health|__debug).*/, (_req, res) => {
-  if (fs.existsSync(distDir)) {
-    res.sendFile(path.join(distDir, 'index.html'))
-  } else {
-    res.status(503).type('text/plain').send('Frontend not built yet.')
+// ==== Catch-all SPA, mais on EXCLUT /api et /socket.io ====
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
+    return res.status(404).end() // on laisse Express répondre 404 API
   }
+  return res.sendFile(path.join(distDir, 'index.html'))
 })
 
-// ---------- Lancement ----------
+// ==== Start ====
 const PORT = process.env.PORT || 3000
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server listening on http://0.0.0.0:${PORT}`)
+server.listen(PORT, () => {
+  console.log('Server listening on', PORT)
 })
