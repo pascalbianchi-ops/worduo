@@ -1,6 +1,6 @@
 // src/ws-guard.ts
 // Bloque toute tentative de WebSocket vers localhost quand la page n'est pas locale.
-// Conserve le path (/socket.io/...) et la query.
+// Conserve pathname + search et supprime tout port explicite.
 if (typeof window !== 'undefined') {
   const origWS = window.WebSocket
   window.WebSocket = function (url: any, protocols?: any) {
@@ -10,18 +10,17 @@ if (typeof window !== 'undefined') {
       const isLocalPage = /^(localhost|127\.0\.0\.1|::1)$/i.test(window.location.hostname)
 
       if (!isLocalPage && isLocalTarget) {
-        // Parse l'URL originale pour garder pathname + search
         const u = new URL(raw)
-        // Remplace juste protocole + host par ceux de la page courante
+        // remplace juste le scheme + host par ceux de la page
         u.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        u.host = window.location.host
+        u.hostname = window.location.hostname
+        u.port = '' // IMPORTANT: supprime :3000 hérité de localhost
+        // (on garde u.pathname et u.search intacts)
         const forced = u.toString()
         console.warn('[WS-guard] Blocking', raw, '→ forcing', forced)
         return new (origWS as any)(forced, protocols)
       }
-    } catch {
-      // no-op
-    }
+    } catch {}
     return new (origWS as any)(url, protocols)
   } as any
 }
