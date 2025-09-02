@@ -1,3 +1,4 @@
+// src/ui/Lobby.tsx (corrigé)
 import React, { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useGame } from '../state/GameContext'
@@ -11,50 +12,40 @@ function join(base: string, path: string) {
   return `${normalizeBase(base)}/${String(path).replace(/^\/+/, '')}`
 }
 
-/**
- * Base d'API :
- * - En dev, tu peux garder une base custom (proxy Vite gère /api)
- * - En prod (https, onrender.com, github.io, etc.), on force la même origine
- *   pour éviter tout "failed to fetch" / mixed content.
+/** Base d'API :
+ * - PROD (https / onrender / github.io) => même origine ('')
+ * - DEV => localStorage éventuel > origin (Vite proxy pour /api)
  */
 function getApiBase(): string {
   if (typeof window === 'undefined') return ''
-  const origin = window.location.origin
-  const host = window.location.host
-  const proto = window.location.protocol
+  const { protocol, host, origin } = window.location
 
-  // lecture éventuelle (utilisateur ayant choisi un serveur)
-  const stored = (localStorage.getItem('serverUrl') || '').trim()
-
-  // Cas PROD (hébergements classiques)
   const isHostedProd =
-    proto === 'https:' ||
+    protocol === 'https:' ||
     /onrender\.com$/i.test(host) ||
     /github\.io$/i.test(host)
 
-  // Si on est en prod ou en https, on IGNORE tout localhost/http externe.
-  if (isHostedProd) return '' // '' => même origine (https://worduo.onrender.com)
+  if (isHostedProd) return '' // même origine
 
-  // En dev on accepte la valeur stockée si elle existe
-  // mais on évite de renvoyer un http://localhost si la page elle-même est en https
-  if (stored && !(proto === 'https:' && /^http:\/\/localhost/i.test(stored))) {
+  const stored = (localStorage.getItem('serverUrl') || '').trim()
+  if (stored && !(protocol === 'https:' && /^http:\/\/localhost/i.test(stored))) {
     return normalizeBase(stored)
   }
-  return origin // typiquement http://localhost:5173 (proxy Vite redirige /api)
+  return origin
 }
-// Appel d’API générique
+
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const base = getApiBase()
   const url = join(base, path)
   const res = await fetch(url, { cache: 'no-store', ...init })
   if (!res.ok) {
     const txt = await res.text().catch(() => '')
-    throw new Error(`HTTP ${res.status} on ${url} – ${txt.slice(0, 120)}`)
+    throw new Error(`HTTP ${res.status} on ${url} – ${txt.slice(0, 160)}`)
   }
   const ct = res.headers.get('content-type') || ''
   if (!ct.includes('application/json')) {
     const txt = await res.text().catch(() => '')
-    throw new Error(`Expected JSON from ${url}, got "${ct}". Body: ${txt.slice(0, 120)}`)
+    throw new Error(`Expected JSON from ${url}, got "${ct}". Body: ${txt.slice(0, 160)}`)
   }
   return res.json() as Promise<T>
 }
@@ -62,7 +53,7 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
 
 // Presets serveur (production = même origine)
 const SERVER_PRESETS = [
-  { label: 'Production (même origine)', value: '' }, // => https://worduo.onrender.com
+  { label: 'Production (même origine)', value: '' },
   { label: 'Local (localhost:3000)', value: 'http://localhost:3000' },
   { label: 'Personnalisé…', value: 'custom' },
 ]
@@ -116,10 +107,10 @@ function Fireworks() {
 }
 
 export function Lobby() {
-  const { setState, socket } = useGame()
+  // ✅ on récupère ensureConnected du GameContext patché
+  const { setState, socket, ensureConnected } = useGame()
 
   // --- Sélection serveur ---
-  // IMPORTANT : si on est en prod (https / onrender), on force l’affichage "Production (même origine)"
   const hostedProd = typeof window !== 'undefined' && (
     window.location.protocol === 'https:' ||
     /onrender\.com$/i.test(window.location.host) ||
@@ -138,16 +129,36 @@ export function Lobby() {
   const effectiveServerUrl = serverPreset === 'custom' ? customServerUrl : serverPreset
 
   const applyServer = () => {
-    // En prod, on impose même origine
     if (hostedProd) {
+      // En prod on force même origine et on purge tout
+      try { localStorage.removeItem('serverUrl') } catch {}
       setServerUrl('')
       window.location.reload()
       return
     }
     const url = normalizeBase(effectiveServerUrl || '')
-    if (!url && !hostedProd) return alert('URL serveur vide.')
+    if (!url) return alert('URL serveur vide.')
     setServerUrl(url)
     window.location.reload()
+  }
+
+  // --- Pseudo + Jouer ---
+  const [pseudo, setPseudo] = useState<string>('')
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
+
+  const onPlay = async () => {
+    const name = pseudo.trim()
+    if (!name) return setError('Saisis un pseudo.')
+    setError(null)
+    setReady(true)
+    setState(prev => ({ ...prev, pseudo: name as any }))
+    // On s’assure d’être connecté dès maintenant pour éviter l’attente sur “Rejoindre”
+    try { await ensureConnected() } catch (e) {
+      setError('Connexion au serveur impossible.')
+      console.error(e)
+    }
   }
 
   // --- Sélection room ---
@@ -156,7 +167,6 @@ export function Lobby() {
   const [roomMode, setRoomMode] = useState<'preset' | 'custom'>(savedRoomPreset === 'custom' ? 'custom' : 'preset')
   const [roomPreset, setRoomPreset] = useState<string>(SALONS.includes(savedCustomRoom) ? savedCustomRoom : randomSalon())
   const [roomCustom, setRoomCustom] = useState<string>(roomMode === 'custom' ? (savedCustomRoom || '') : '')
-
   const room = roomMode === 'custom' ? (roomCustom || '') : roomPreset
 
   useEffect(() => {
@@ -165,20 +175,6 @@ export function Lobby() {
   }, [roomMode, roomPreset, roomCustom])
 
   const diceRoom = () => { setRoomMode('preset'); setRoomPreset(randomSalon()) }
-
-  // --- Pseudo + Jouer ---
-  const [pseudo, setPseudo] = useState<string>('')
-  const [ready, setReady] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState<string | null>(null)
-
-  const onPlay = () => {
-    const name = pseudo.trim()
-    if (!name) return setError('Saisis un pseudo.')
-    setError(null)
-    setReady(true)
-    setState(prev => ({ ...prev, pseudo: name }))
-  }
 
   // --- Liste dynamique des rooms /api/rooms ---
   const [rooms, setRooms] = useState<RoomInfo[]>([])
@@ -200,40 +196,56 @@ export function Lobby() {
     return () => { stop = true; clearInterval(id) }
   }, [])
 
-  // --- Join helpers ---
-  const join = () => {
-    if (!ready) return setError('Clique d’abord sur Jouer pour valider ton pseudo.')
+  // --- Join helpers (✅ on garantit la connexion) ---
+  const join = async () => {
+    const name = pseudo.trim()
+    if (!name) return setError('Saisis un pseudo.')
     if (!room.trim()) return setError('Choisis un salon ou saisis-en un.')
     setError(null); setInfo(null)
-    socket.emit('game:join', { roomId: room, role: 'giver', pseudo }, (res: any) => {
-      if (res?.ok) {
-        if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
-          setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
+
+    try {
+      await ensureConnected()
+      socket.emit('game:join', { roomId: room, role: 'giver', pseudo: name }, (res: any) => {
+        if (res?.ok) {
+          if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
+            setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
+          }
+          setState(prev => ({ ...prev, ...res.state }))
+        } else {
+          setError(res?.message || 'Impossible de rejoindre la partie.')
         }
-        setState(prev => ({ ...prev, ...res.state }))
-      } else {
-        setError(res?.message || 'Impossible de rejoindre la partie.')
-      }
-    })
+      })
+    } catch (e) {
+      console.error(e)
+      setError('Connexion au serveur impossible.')
+    }
   }
 
-  const joinDirect = (roomId: string, role: 'giver' | 'guesser') => {
+  const joinDirect = async (roomId: string, role: 'giver' | 'guesser') => {
+    const name = pseudo.trim()
     if (!ready) return setError('Tape ton pseudo puis clique « Jouer ».')
     setError(null); setInfo(null)
-    socket.emit('game:join', { roomId, role, pseudo }, (res: any) => {
-      if (res?.ok) {
-        if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
-          setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
+    try {
+      await ensureConnected()
+      socket.emit('game:join', { roomId, role, pseudo: name }, (res: any) => {
+        if (res?.ok) {
+          if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
+            setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
+          }
+          setState(prev => ({ ...prev, ...res.state }))
+        } else {
+          setError(res?.message || 'Impossible de rejoindre la partie.')
         }
-        setState(prev => ({ ...prev, ...res.state }))
-      } else {
-        setError(res?.message || 'Impossible de rejoindre la partie.')
-      }
-    })
+      })
+    } catch (e) {
+      console.error(e)
+      setError('Connexion au serveur impossible.')
+    }
   }
 
+  // Entrée clavier = rejoindre
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter') join() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter') void join() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -271,7 +283,7 @@ export function Lobby() {
                 value={serverPreset}
                 onChange={e => setServerPreset(e.target.value)}
                 style={{ minWidth: 260 }}
-                disabled={hostedProd} // prod = forcé à même origine
+                disabled={hostedProd}
               >
                 {SERVER_PRESETS.map(p => (
                   <option key={p.value} value={p.value}>{p.label}</option>
@@ -336,7 +348,7 @@ export function Lobby() {
                   <button
                     className="btn btn-ghost"
                     disabled={!ready}
-                    onClick={() => joinDirect(r.id, 'giver')}
+                    onClick={() => void joinDirect(r.id, 'giver')}
                     style={tapStyle}
                   >
                     Rejoindre en Meneur
@@ -344,7 +356,7 @@ export function Lobby() {
                   <button
                     className="btn btn-ghost"
                     disabled={!ready}
-                    onClick={() => joinDirect(r.id, 'guesser')}
+                    onClick={() => void joinDirect(r.id, 'guesser')}
                     style={tapStyle}
                   >
                     Rejoindre en Devineur
@@ -421,7 +433,7 @@ export function Lobby() {
           </div>
 
           <div className="row" style={{ marginTop: 12 }}>
-            <button className="btn btn-primary" onClick={join} disabled={!ready} style={tapStyle}>Rejoindre (Meneur)</button>
+            <button className="btn btn-primary" onClick={() => void join()} disabled={!ready} style={tapStyle}>Rejoindre (Meneur)</button>
             <span className="card-sub">Astuce : tape <span className="kbd">Entrée</span></span>
           </div>
           {!ready && <div style={{ marginTop: 6, fontSize: 12, opacity: .75 }}>Saisis ton pseudo puis clique « Jouer ».</div>}
