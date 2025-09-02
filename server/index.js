@@ -11,10 +11,10 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-// ==== API D'ABORD (avant le static & le catch-all) ====
-
+// ==== In-memory rooms ====
 const rooms = new Map() // id -> { id, name, players: number }
 
+// ==== API ====
 app.get('/api/health', (req, res) => res.json({ ok: true }))
 
 app.get('/api/rooms', (req, res) => {
@@ -33,10 +33,12 @@ app.post('/api/rooms', (req, res) => {
 const server = http.createServer(app)
 const io = new Server(server, {
   path: '/socket.io',
-  cors: { origin: '*', methods: ['GET','POST'] }
+  cors: { origin: '*', methods: ['GET', 'POST'] }
 })
 
-// ✅ Ajout de logs simples pour debug
+// Associer chaque socket à sa room courante
+const socketRoom = new Map() // socket.id -> roomId
+
 io.on('connection', (socket) => {
   console.log('[SOCKET] client connected', socket.id)
 
@@ -48,20 +50,43 @@ io.on('connection', (socket) => {
       return cb?.({ ok: false, message: 'roomId et pseudo requis' })
     }
 
-    // ajout/MAJ de la room
+    // Création ou mise à jour de la room
     if (!rooms.has(roomId)) {
       rooms.set(roomId, { id: roomId, name: roomId, players: 0 })
     }
     const r = rooms.get(roomId)
     r.players++
+    socketRoom.set(socket.id, roomId)
 
     socket.join(roomId)
-    cb?.({ ok: true, state: { roomId, role, pseudo } })
-    io.to(roomId).emit('game:state', { roomId, players: r.players })
+
+    // État initial envoyé au client qui a rejoint
+    const state = {
+      roomId,
+      role,
+      pseudo,
+      status: 'idle',
+      guesses: [],
+      players: r.players
+    }
+
+    cb?.({ ok: true, state })
+
+    // Notifier tous les clients de la room
+    io.to(roomId).emit('game:state', state)
   })
 
   socket.on('disconnect', () => {
     console.log('[SOCKET] client disconnected', socket.id)
+    const roomId = socketRoom.get(socket.id)
+    if (roomId && rooms.has(roomId)) {
+      const r = rooms.get(roomId)
+      r.players = Math.max(0, r.players - 1)
+      if (r.players === 0) {
+        rooms.delete(roomId) // supprime la room vide
+      }
+    }
+    socketRoom.delete(socket.id)
   })
 })
 
@@ -69,7 +94,7 @@ io.on('connection', (socket) => {
 const distDir = path.join(__dirname, '..', 'dist')
 app.use(express.static(distDir))
 
-// ==== Catch-all SPA, mais on EXCLUT /api et /socket.io ====
+// ==== Catch-all SPA, sauf /api et /socket.io ====
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
     return res.status(404).end()
