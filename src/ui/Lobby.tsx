@@ -1,229 +1,143 @@
-// src/ui/Lobby.tsx
-import React, { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useGame } from '../state/GameContext'
-import { setServerUrl, getCurrentServerUrl } from '../lib/socket'
 
-// ===== Helpers HTTP (même base que le socket) =====
-function normalizeBase(u: string) {
-  return (u || '').trim().replace(/\/+$/, '')
-}
-function join(base: string, path: string) {
-  return `${normalizeBase(base)}/${String(path).replace(/^\/+/, '')}`
-}
-
-/** Base d'API :
- *  PROD (https/onrender/github.io) => même origine ('')
- *  DEV => localStorage éventuel > origin (Vite proxy pour /api)
- */
-function getApiBase(): string {
-  if (typeof window === 'undefined') return ''
-  const { protocol, host, origin } = window.location
-
-  const isHostedProd = protocol === 'https:' || /onrender\.com$/i.test(host) || /github\.io$/i.test(host)
-  if (isHostedProd) return '' // même origine
-
-  const stored = (localStorage.getItem('serverUrl') || '').trim()
-  if (stored && !(protocol === 'https:' && /^http:\/\/localhost/i.test(stored))) {
-    return normalizeBase(stored)
-  }
-  return origin
-}
-
-async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const base = getApiBase()
-  const url = join(base, path)
-  const res = await fetch(url, { cache: 'no-store', ...init })
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`HTTP ${res.status} on ${url} – ${txt.slice(0, 160)}`)
-  }
-  const ct = res.headers.get('content-type') || ''
-  if (!ct.includes('application/json')) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`Expected JSON from ${url}, got "${ct}". Body: ${txt.slice(0, 160)}`)
-  }
-  return res.json() as Promise<T>
-}
-// ===== fin helpers =====
-
-// Presets serveur (prod = même origine)
-const SERVER_PRESETS = [
-  { label: 'Production (même origine)', value: '' },
-  { label: 'Local (localhost:3000)', value: 'http://localhost:3000' },
-  { label: 'Personnalisé…', value: 'custom' },
-]
-
-// Salons
-const SALONS = [ /* … ta liste … */ ]
-function randomSalon() { return SALONS[Math.floor(Math.random() * SALONS.length)] }
-
-type RoomInfo = {
-  id: string
-  color: string
-  host: string
-  waitingFor: 'meneur' | 'devineur'
-}
-
-const tapStyle: CSSProperties = {
-  touchAction: 'manipulation',
-  WebkitTapHighlightColor: 'transparent',
-  WebkitUserSelect: 'none',
-  userSelect: 'none',
-  cursor: 'pointer',
-}
-
-function Fireworks() {
-  const pieces = useMemo(() => {
-    const icons = ['🎆','🎇','✨','💥','🌟','⭐️','🎊','🎉']
-    return Array.from({ length: 40 }, () => ({
-      icon: icons[Math.floor(Math.random() * icons.length)],
-      left: Math.floor(Math.random() * 100),
-      delay: Math.random() * 1.2,
-    }))
-  }, [])
-  return (
-    <div className="confetti" aria-hidden style={{ pointerEvents: 'none' }}>
-      {pieces.map((p, i) => (
-        <span key={i} style={{ left: `${p.left}%`, animationDelay: `${p.delay}s` }}>
-          {p.icon}
-        </span>
-      ))}
-    </div>
-  )
-}
+type JoinRes = { ok: boolean; message?: string; state?: any; redirectedFrom?: string }
 
 export function Lobby() {
-  const { setState, socket, ensureConnected } = useGame()
-
-  // --- Sélection serveur ---
-  const hostedProd = typeof window !== 'undefined' && (
-    window.location.protocol === 'https:' ||
-    /onrender\.com$/i.test(window.location.host) ||
-    /github\.io$/i.test(window.location.host)
-  )
-
-  const initialUrl = hostedProd ? '' : getCurrentServerUrl()
-  const initialServerPreset = hostedProd ? '' : (SERVER_PRESETS.find(p => p.value === initialUrl)?.value ?? 'custom')
-
-  const [serverPreset, setServerPreset] = useState<string>(initialServerPreset)
-  const [customServerUrl, setCustomServerUrl] = useState<string>(initialServerPreset === 'custom' ? initialUrl : '')
-  const effectiveServerUrl = serverPreset === 'custom' ? customServerUrl : serverPreset
-
-  const applyServer = () => {
-    if (hostedProd) {
-      try { localStorage.removeItem('serverUrl') } catch {}
-      setServerUrl('')     // ignoré en prod mais on purge quand même
-      window.location.reload()
-      return
-    }
-    const url = normalizeBase(effectiveServerUrl || '')
-    if (!url) return alert('URL serveur vide.')
-    setServerUrl(url)
-    window.location.reload()
-  }
-
-  // --- Pseudo + Jouer ---
-  const [pseudo, setPseudo] = useState<string>('')
+  const { socket, setState } = useGame()
+  const [pseudo, setPseudo] = useState('')
   const [ready, setReady] = useState(false)
+  const [roomId, setRoomId] = useState('Salon Turquoise')
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+  const [rooms, setRooms] = useState<Array<{id:string;color:string;host:string;waitingFor:'meneur'|'devineur'}>>([])
 
-  const onPlay = async () => {
-    const name = pseudo.trim()
-    if (!name) return setError('Saisis un pseudo.')
-    setError(null)
-    setReady(true)
-    setState(prev => ({ ...prev, pseudo: name as any }))
-    try { await ensureConnected() } catch (e) {
-      setError('Connexion au serveur impossible.')
-      console.error(e)
-    }
-  }
-
-  // --- Sélection room ---
-  const savedRoomPreset = (localStorage.getItem('roomPreset') as string) || 'preset'
-  const savedCustomRoom = localStorage.getItem('customRoom') || ''
-  const [roomMode, setRoomMode] = useState<'preset' | 'custom'>(savedRoomPreset === 'custom' ? 'custom' : 'preset')
-  const [roomPreset, setRoomPreset] = useState<string>(SALONS.includes(savedCustomRoom) ? savedCustomRoom : randomSalon())
-  const [roomCustom, setRoomCustom] = useState<string>(roomMode === 'custom' ? (savedCustomRoom || '') : '')
-  const room = roomMode === 'custom' ? (roomCustom || '') : roomPreset
-
+  // Connexion socket simple (pas d’artifice)
   useEffect(() => {
-    localStorage.setItem('roomPreset', roomMode)
-    localStorage.setItem('customRoom', roomMode === 'custom' ? roomCustom : roomPreset)
-  }, [roomMode, roomPreset, roomCustom])
+    if (!socket.connected) socket.connect()
+    const onConnect = () => console.log('[Lobby] socket connected')
+    const onDisconnect = () => console.log('[Lobby] socket disconnected')
+    socket.on('connect', onConnect)
+    socket.on('disconnect', onDisconnect)
+    return () => {
+      socket.off('connect', onConnect)
+      socket.off('disconnect', onDisconnect)
+    }
+  }, [socket])
 
-  const diceRoom = () => { setRoomMode('preset'); setRoomPreset(randomSalon()) }
-
-  // --- Liste /api/rooms ---
-  const [rooms, setRooms] = useState<RoomInfo[]>([])
-  const [loadingRooms, setLoadingRooms] = useState(true)
-  const [errRooms, setErrRooms] = useState<string | null>(null)
-
+  // Poll des rooms simples
   useEffect(() => {
     let stop = false
     const load = async () => {
       try {
-        const j = await api<{ rooms: RoomInfo[] }>('/api/rooms')
-        if (!stop) { setRooms(j.rooms); setErrRooms(null); setLoadingRooms(false) }
-      } catch (e: any) {
-        if (!stop) { setErrRooms(e?.message ?? 'Erreur rooms'); setLoadingRooms(false) }
-      }
+        const res = await fetch('/api/rooms', { cache: 'no-store' })
+        const j = await res.json()
+        if (!stop) setRooms(Array.isArray(j.rooms) ? j.rooms : [])
+      } catch {}
     }
     load()
     const id = setInterval(load, 5000)
     return () => { stop = true; clearInterval(id) }
   }, [])
 
-  // --- Join helpers (on garantit la connexion) ---
-  const doJoin = async (roomId: string, role: 'giver' | 'guesser', name: string) => {
-    try {
-      await ensureConnected()
-      socket.emit('game:join', { roomId, role, pseudo: name }, (res: any) => {
-        if (res?.ok) {
-          if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
-            setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
-          }
-          setState(prev => ({ ...prev, ...res.state }))
-        } else {
-          setError(res?.message || 'Impossible de rejoindre la partie.')
+  const onPlay = () => {
+    const name = pseudo.trim()
+    if (!name) { setError('Saisis un pseudo.'); return }
+    setError(null)
+    setReady(true)
+    setState(prev => ({ ...prev, pseudo: name as any }))
+  }
+
+  const join = (role: 'giver'|'guesser') => {
+    if (!ready) { setError('Clique d’abord sur Jouer.'); return }
+    const name = pseudo.trim()
+    if (!name) { setError('Saisis un pseudo.'); return }
+    if (!roomId.trim()) { setError('Saisis un salon.'); return }
+
+    setError(null); setInfo(null)
+    socket.emit('game:join', { roomId, role, pseudo: name }, (res: JoinRes) => {
+      if (res?.ok) {
+        if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
+          setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
         }
-      })
-    } catch (e) {
-      console.error(e)
-      setError('Connexion au serveur impossible.')
-    }
+        setState(prev => ({ ...prev, ...res.state }))
+      } else {
+        setError(res?.message || 'Impossible de rejoindre.')
+      }
+    })
   }
 
-  const join = async () => {
-    const name = pseudo.trim()
-    if (!name) return setError('Saisis un pseudo.')
-    if (!room.trim()) return setError('Choisis un salon ou saisis-en un.')
-    setError(null); setInfo(null)
-    await doJoin(room, 'giver', name)
-  }
-
-  const joinDirect = async (roomId: string, role: 'giver' | 'guesser') => {
-    const name = pseudo.trim()
-    if (!ready) return setError('Tape ton pseudo puis clique « Jouer ».')
-    setError(null); setInfo(null)
-    await doJoin(roomId, role, name)
-  }
-
-  // Entrée clavier = rejoindre
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter') void join() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room, pseudo, ready])
-
-  // … Le JSX reste inchangé (ta version)
-  // (je le garde tel quel ici pour rester concis)
-  // ——————————————————————————————————————————————
   return (
-    // … ton rendu actuel (inchangé)
-    <div />
+    <div style={{padding:20, color:'#eee', fontFamily:'system-ui, sans-serif', minHeight:'100vh', background:'#0f0f18'}}>
+      <h1 style={{marginTop:0}}>WorDuo — Lobby (mode secours)</h1>
+
+      <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
+        <div style={{marginBottom:8}}>
+          <label style={{display:'block', marginBottom:4}}>Pseudo</label>
+          <input
+            style={{width:'100%', padding:8, borderRadius:6, border:'1px solid #444', background:'#111', color:'#eee'}}
+            value={pseudo}
+            onChange={e=>setPseudo(e.target.value)}
+            placeholder="Ton pseudo…"
+          />
+        </div>
+        <button
+          onClick={onPlay}
+          disabled={!pseudo.trim()}
+          style={{padding:'8px 12px', borderRadius:6, border:'1px solid #666', background:'#1f6feb', color:'#fff', cursor:'pointer'}}
+        >
+          Jouer
+        </button>
+        {ready && <span style={{marginLeft:10, color:'#9fe'}}>✅ prêt</span>}
+      </div>
+
+      <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
+        <div style={{marginBottom:8}}>
+          <label style={{display:'block', marginBottom:4}}>Salon</label>
+          <input
+            style={{width:'100%', padding:8, borderRadius:6, border:'1px solid #444', background:'#111', color:'#eee'}}
+            value={roomId}
+            onChange={e=>setRoomId(e.target.value)}
+            placeholder="Nom exact du salon…"
+          />
+        </div>
+        <div style={{display:'flex', gap:8}}>
+          <button onClick={()=>join('giver')} disabled={!ready}
+            style={{padding:'8px 12px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
+          >
+            Rejoindre (Meneur)
+          </button>
+          <button onClick={()=>join('guesser')} disabled={!ready}
+            style={{padding:'8px 12px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
+          >
+            Rejoindre (Devineur)
+          </button>
+        </div>
+        {!ready && <div style={{marginTop:8, opacity:.8}}>Saisis un pseudo puis clique « Jouer ».</div>}
+      </div>
+
+      {error && <div style={{marginBottom:12, padding:10, border:'1px solid #a33', background:'#2a0f14', borderRadius:8, color:'#FCA5A5'}}>⚠️ {error}</div>}
+      {info && <div style={{marginBottom:12, padding:10, border:'1px solid #5865f2', background:'#0b0f22', borderRadius:8}}>ℹ️ {info}</div>}
+
+      <div style={{border:'1px solid #333', borderRadius:8, padding:12}}>
+        <h2 style={{marginTop:0}}>Rooms disponibles</h2>
+        {rooms.length === 0 && <div>Aucune room visible.</div>}
+        <ul style={{listStyle:'none', padding:0, margin:0, display:'grid', gap:8}}>
+          {rooms.map(r => (
+            <li key={r.id} style={{border:'1px solid #222', borderRadius:8, padding:10}}>
+              <div><b>{r.host}</b> attend un <b>{r.waitingFor}</b> — <i>{r.color}</i></div>
+              <div style={{marginTop:8, display:'flex', gap:8}}>
+                <button onClick={()=>join('giver')} disabled={!ready}
+                  style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
+                >Rejoindre en Meneur</button>
+                <button onClick={()=>join('guesser')} disabled={!ready}
+                  style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
+                >Rejoindre en Devineur</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   )
 }
