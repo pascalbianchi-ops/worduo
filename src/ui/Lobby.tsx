@@ -12,7 +12,7 @@ export function Lobby() {
   const [info, setInfo] = useState<string | null>(null)
   const [rooms, setRooms] = useState<Array<{id:string;color:string;host:string;waitingFor:'meneur'|'devineur'}>>([])
 
-  // Connexion socket simple (pas d’artifice)
+  // Connexion socket simple (pas d'artifice)
   useEffect(() => {
     if (!socket.connected) socket.connect()
     const onConnect = () => console.log('[Lobby] socket connected')
@@ -48,14 +48,15 @@ export function Lobby() {
     setState(prev => ({ ...prev, pseudo: name as any }))
   }
 
-  const join = (role: 'giver'|'guesser') => {
+  const join = (role: 'giver'|'guesser', targetRoomId?: string) => {
     if (!ready) { setError('Clique d’abord sur Jouer.'); return }
     const name = pseudo.trim()
     if (!name) { setError('Saisis un pseudo.'); return }
-    if (!roomId.trim()) { setError('Saisis un salon.'); return }
+    const finalRoomId = (targetRoomId ?? roomId).trim()
+    if (!finalRoomId) { setError('Saisis un salon.'); return }
 
     setError(null); setInfo(null)
-    socket.emit('game:join', { roomId, role, pseudo: name }, (res: JoinRes) => {
+    socket.emit('game:join', { roomId: finalRoomId, role, pseudo: name }, (res: JoinRes) => {
       if (res?.ok) {
         if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
           setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
@@ -127,10 +128,10 @@ export function Lobby() {
             <li key={r.id} style={{border:'1px solid #222', borderRadius:8, padding:10}}>
               <div><b>{r.host}</b> attend un <b>{r.waitingFor}</b> — <i>{r.color}</i></div>
               <div style={{marginTop:8, display:'flex', gap:8}}>
-                <button onClick={()=>join('giver')} disabled={!ready}
+                <button onClick={()=>join('giver', r.id)} disabled={!ready}
                   style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
                 >Rejoindre en Meneur</button>
-                <button onClick={()=>join('guesser')} disabled={!ready}
+                <button onClick={()=>join('guesser', r.id)} disabled={!ready}
                   style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
                 >Rejoindre en Devineur</button>
               </div>
