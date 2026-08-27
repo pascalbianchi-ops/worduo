@@ -20,13 +20,36 @@ app.use(express.json())
  *   players: number,
  *   color: string,
  *   host: string | null,
- *   roles: { giver: boolean, guesser: boolean }
+ *   roles: { giver: boolean, guesser: boolean },
+ *   game: {
+ *     status: 'idle' | 'running' | 'ended',
+ *     word: string | null,
+ *     hint: string | null,
+ *     guesses: string[],
+ *     outcome: 'win' | 'lose' | null,
+ *     revealWord: string | null,
+ *     attempts: number
+ *   }
  * }
  */
 const rooms = new Map()
 
 // socket -> { roomId, role, pseudo }
 const socketInfo = new Map()
+
+const MAX_ATTEMPTS = 6
+
+function freshGame() {
+  return {
+    status: 'idle',
+    word: null,
+    hint: null,
+    guesses: [],
+    outcome: null,
+    revealWord: null,
+    attempts: 0,
+  }
+}
 
 function ensureRoom(roomId) {
   if (!rooms.has(roomId)) {
@@ -37,6 +60,7 @@ function ensureRoom(roomId) {
       color: roomId,
       host: null,
       roles: { giver: false, guesser: false },
+      game: freshGame(),
     })
   }
   return rooms.get(roomId)
@@ -47,6 +71,32 @@ function computeWaitingFor(r) {
   if (!r.roles.giver) return 'meneur'
   if (!r.roles.guesser) return 'devineur'
   return null
+}
+
+function publicState(r, forSocketId) {
+  const info = socketInfo.get(forSocketId)
+  const role = info?.role
+  return {
+    roomId: r.id,
+    role,
+    pseudo: info?.pseudo,
+    status: r.game.status,
+    hint: r.game.hint,
+    guesses: r.game.guesses,
+    outcome: r.game.outcome,
+    // le mot n'est révélé au devineur que si la partie est terminée
+    revealWord: r.game.status === 'ended' ? r.game.revealWord : null,
+    attempts: r.game.attempts,
+    players: r.players,
+  }
+}
+
+function broadcastState(io, r) {
+  for (const [sockId, info] of socketInfo.entries()) {
+    if (info.roomId === r.id) {
+      io.to(sockId).emit('game:state', publicState(r, sockId))
+    }
+  }
 }
 
 function leaveCurrentRoom(socket) {
@@ -60,8 +110,8 @@ function leaveCurrentRoom(socket) {
     if (r.players === 0) {
       rooms.delete(roomId)
     } else {
-      // si l’hôte est parti, on ne recalcule pas vraiment — on laisse comme est
-      // (ou on pourrait choisir le prochain connecté comme host)
+      // si l'hôte est parti, on ne recalcule pas vraiment — on laisse comme est
+      // (ou on pourrait choisir le prochain connecté comme host)
     }
   }
   socket.leave(roomId)
@@ -71,7 +121,7 @@ function leaveCurrentRoom(socket) {
 // ================== API ==================
 app.get('/api/health', (req, res) => res.json({ ok: true }))
 
-// Retourne UNIQUEMENT les rooms qui attendent quelqu’un (utile pour le lobby)
+// Retourne UNIQUEMENT les rooms qui attendent quelqu'un (utile pour le lobby)
 app.get('/api/rooms', (req, res) => {
   const list = []
   for (const r of rooms.values()) {
@@ -99,6 +149,7 @@ app.post('/api/rooms', (req, res) => {
       color: name,
       host: null,
       roles: { giver: false, guesser: false },
+      game: freshGame(),
     })
   }
   res.status(201).json({ id })
@@ -126,6 +177,12 @@ io.on('connection', (socket) => {
       leaveCurrentRoom(socket)
 
       const r = ensureRoom(roomId)
+
+      // un rôle déjà pris ne peut pas être repris par un autre joueur
+      if (r.roles[role]) {
+        return cb?.({ ok: false, message: `Le rôle ${role === 'giver' ? 'meneur' : 'devineur'} est déjà pris dans ce salon.` })
+      }
+
       r.players += 1
       r.roles[role] = true
       if (!r.host) r.host = pseudo // premier arrivé = host par défaut
@@ -133,29 +190,113 @@ io.on('connection', (socket) => {
       socket.join(roomId)
       socketInfo.set(socket.id, { roomId, role, pseudo })
 
-      // État initial
-      const state = {
-        roomId,
-        role,
-        pseudo,
-        status: 'idle',
-        guesses: [],
-        players: r.players,
-      }
-
+      const state = publicState(r, socket.id)
       cb?.({ ok: true, state })
 
-      // broadcast d’un petit état room (facultatif)
-      io.to(roomId).emit('game:state', state)
+      // broadcast à tous les membres de la room (chacun reçoit sa propre vue)
+      broadcastState(io, r)
     } catch (e) {
       console.error('[JOIN] error', e)
       cb?.({ ok: false, message: 'Erreur serveur join' })
     }
   })
 
+  // Le meneur démarre une manche avec un mot
+  socket.on('game:start', (payload) => {
+    try {
+      const info = socketInfo.get(socket.id)
+      if (!info) return
+      const r = rooms.get(info.roomId)
+      if (!r || info.role !== 'giver') return // seul le meneur peut démarrer
+
+      const word = String(payload?.word || '').trim().toUpperCase()
+      if (!word) return
+
+      r.game = {
+        status: 'running',
+        word,
+        hint: payload?.hint ? String(payload.hint) : null,
+        guesses: [],
+        outcome: null,
+        revealWord: null,
+        attempts: 0,
+      }
+
+      broadcastState(io, r)
+    } catch (e) {
+      console.error('[START] error', e)
+    }
+  })
+
+  // Le meneur envoie un indice
+  socket.on('game:hint', (payload) => {
+    try {
+      const info = socketInfo.get(socket.id)
+      if (!info) return
+      const r = rooms.get(info.roomId)
+      if (!r || info.role !== 'giver' || r.game.status !== 'running') return
+
+      r.game.hint = String(payload?.hint || '').trim()
+      broadcastState(io, r)
+    } catch (e) {
+      console.error('[HINT] error', e)
+    }
+  })
+
+  // Le devineur propose un mot
+  socket.on('game:guess', (payload) => {
+    try {
+      const info = socketInfo.get(socket.id)
+      if (!info) return
+      const r = rooms.get(info.roomId)
+      if (!r || info.role !== 'guesser' || r.game.status !== 'running') return
+
+      const guess = String(payload?.guess || '').trim().toUpperCase()
+      if (!guess) return
+
+      r.game.guesses.push(guess)
+      r.game.attempts += 1
+
+      if (guess === r.game.word) {
+        r.game.status = 'ended'
+        r.game.outcome = 'win'
+        r.game.revealWord = r.game.word
+      } else if (r.game.attempts >= MAX_ATTEMPTS) {
+        r.game.status = 'ended'
+        r.game.outcome = 'lose'
+        r.game.revealWord = r.game.word
+      }
+
+      broadcastState(io, r)
+    } catch (e) {
+      console.error('[GUESS] error', e)
+    }
+  })
+
+  // Le meneur (ou le devineur) abandonne la manche en cours
+  socket.on('game:giveup', () => {
+    try {
+      const info = socketInfo.get(socket.id)
+      if (!info) return
+      const r = rooms.get(info.roomId)
+      if (!r || r.game.status !== 'running') return
+
+      r.game.status = 'ended'
+      r.game.outcome = 'lose'
+      r.game.revealWord = r.game.word
+
+      broadcastState(io, r)
+    } catch (e) {
+      console.error('[GIVEUP] error', e)
+    }
+  })
+
   socket.on('disconnect', () => {
     console.log('[SOCKET] client disconnected', socket.id)
+    const info = socketInfo.get(socket.id)
+    const r = info ? rooms.get(info.roomId) : null
     leaveCurrentRoom(socket)
+    if (r) broadcastState(io, r)
   })
 })
 
