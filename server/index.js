@@ -5,11 +5,44 @@ import cors from 'cors'
 import { Server } from 'socket.io'
 import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
+import frenchWords from 'an-array-of-french-words'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+// ================== Banque de mots ==================
+// Normalise une fois au démarrage : minuscules, dédupliqué.
+const ALL_WORDS = Array.from(new Set(frenchWords.map((w) => String(w).toLowerCase().trim())))
+
+function hasHyphen(w) {
+  return w.includes('-') || w.includes("'")
+}
+
+function isLikelyInfinitive(w) {
+  return /(er|ir|re|oir)$/.test(w)
+}
+
+function filterWords({ minLen, maxLen, allowHyphen, onlyInfinitive, mode }) {
+  return ALL_WORDS.filter((w) => {
+    if (w.length < minLen || w.length > maxLen) return false
+    if (!allowHyphen && hasHyphen(w)) return false
+    if (onlyInfinitive && !isLikelyInfinitive(w)) return false
+    // mode 'core' = on évite les mots avec accents/caractères spéciaux, plus simples à deviner à l'oral
+    if (mode === 'core' && /[^a-z]/i.test(w)) return false
+    return true
+  })
+}
+
+function shuffleSample(arr, count) {
+  const copy = arr.slice()
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+      ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy.slice(0, count)
+}
 
 // ================== In-memory ==================
 /**
@@ -120,6 +153,29 @@ function leaveCurrentRoom(socket) {
 
 // ================== API ==================
 app.get('/api/health', (req, res) => res.json({ ok: true }))
+
+// Fournit une sélection aléatoire de mots français pour le meneur
+app.get('/api/words', (req, res) => {
+  try {
+    const count = Math.min(parseInt(req.query.count, 10) || 200, 5000)
+    const minLen = parseInt(req.query.minLen, 10) || 3
+    const maxLen = parseInt(req.query.maxLen, 10) || 12
+    const allowHyphen = req.query.allowHyphen === 'true'
+    const onlyInfinitive = req.query.onlyInfinitive === 'true'
+    const mode = req.query.mode === 'core' ? 'core' : 'all'
+
+    const pool = filterWords({ minLen, maxLen, allowHyphen, onlyInfinitive, mode })
+    if (pool.length === 0) {
+      return res.status(404).json({ count: 0, words: [], message: 'Aucun mot ne correspond aux critères.' })
+    }
+
+    const words = shuffleSample(pool, count)
+    res.json({ count: words.length, words })
+  } catch (e) {
+    console.error('[WORDS] error', e)
+    res.status(500).json({ count: 0, words: [], message: 'Erreur serveur /api/words' })
+  }
+})
 
 // Retourne UNIQUEMENT les rooms qui attendent quelqu'un (utile pour le lobby)
 app.get('/api/rooms', (req, res) => {
