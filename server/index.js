@@ -5,9 +5,15 @@ import cors from 'cors'
 import { Server } from 'socket.io'
 import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
-import frenchWords from 'an-array-of-french-words'
+import { createRequire } from 'module'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const require = createRequire(import.meta.url)
+// Le paquet expose un JSON ; en ESM strict (Node 20+), l'import direct exige
+// l'attribut "with { type: 'json' }" selon la version de Node. On passe par
+// createRequire (CommonJS) qui n'a pas cette contrainte et reste stable.
+const frenchWords = require('an-array-of-french-words')
+
 const app = express()
 app.use(cors())
 app.use(express.json())
