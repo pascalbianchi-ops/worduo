@@ -33,19 +33,10 @@ export function Guesser() {
     const isWin = state.outcome === 'win'
     const isLose = state.outcome === 'lose'
 
-    const replay = () => {
-        // reset optimiste local
-        setState(prev => ({
-            ...prev,
-            status: 'running',
-            outcome: null,
-            revealWord: null,
-            hint: null,
-            lastGuess: null,
-            guesses: [],
-            attempts: 0
-        }))
-        socket.emit('game:start', { roomId: state.roomId })
+    // Le devineur ne peut pas démarrer une nouvelle manche : seul le meneur
+    // choisit le mot suivant. On se contente d'informer qu'on attend le meneur.
+    const requestReplay = () => {
+        setState(prev => ({ ...prev, lastGuess: null }))
     }
 
     return (
@@ -97,7 +88,7 @@ export function Guesser() {
                             <h3 className="boom">🎉 Gagné !</h3>
                             <div className="word">Le mot était <b>{state.revealWord ?? '—'}</b></div>
                             <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
-                                <button className="btn btn-primary" onClick={replay}>Rejouer</button>
+                                <div style={{ opacity: .85 }}>En attente d'une nouvelle manche du meneur…</div>
                             </div>
                         </div>
                     )}
@@ -106,7 +97,7 @@ export function Guesser() {
                             <h3 className="boom">💥 Perdu !</h3>
                             <div className="word">Le mot était <b>{state.revealWord ?? '—'}</b></div>
                             <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
-                                <button className="btn btn-primary" onClick={replay}>Nouvelle manche</button>
+                                <div style={{ opacity: .85 }}>En attente d'une nouvelle manche du meneur…</div>
                             </div>
                         </div>
                     )}
@@ -115,4 +106,3 @@ export function Guesser() {
         </>
     )
 }
-
