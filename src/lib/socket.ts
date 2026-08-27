@@ -8,15 +8,22 @@ function resolveUrl(): string {
     const env = (import.meta as any).env?.VITE_SOCKET_URL
         || (import.meta as any).env?.VITE_SERVER_URL
         || ''
-    return stored || env || 'http://localhost:3000'
+    if (stored) return stored
+    if (env) return env
+    // En production (build servi par le serveur lui-m√™me), on utilise l'origine courante
+    // plut√¥t que localhost, qui ne fonctionne qu'en dev local.
+    if (typeof window !== 'undefined' && window.location?.origin) {
+        return window.location.origin
+    }
+    return 'http://localhost:3000'
 }
 
-/** URL serveur actuellement utilisÈe (localStorage > .env > dÈfaut) */
+/** URL serveur actuellement utilis√©e (localStorage > .env > origine courante > d√©faut) */
 export function getCurrentServerUrl(): string {
     return currentUrl ?? resolveUrl()
 }
 
-/** DÈfinit l'URL serveur et invalide le socket courant (sera recrÈÈ au prochain getSocket) */
+/** D√©finit l'URL serveur et invalide le socket courant (sera recr√©√© au prochain getSocket) */
 export function setServerUrl(url: string) {
     if (typeof localStorage !== 'undefined') {
         localStorage.setItem('serverUrl', url)
