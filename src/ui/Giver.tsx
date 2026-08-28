@@ -59,6 +59,10 @@ export function Giver() {
     const [hint, setHint] = useState('')
     const [sendingHint, setSendingHint] = useState(false)
     const [hintSentOk, setHintSentOk] = useState(false)
+    // Le serveur ne garde que le dernier indice (state.hint) ; on trace ici
+    // l'historique complet des indices envoyés pendant la manche en cours,
+    // pour affichage côte à côte avec les propositions du devineur.
+    const [hintHistory, setHintHistory] = useState<string[]>([])
 
     useEffect(() => {
         let cancelled = false
@@ -108,6 +112,7 @@ export function Giver() {
             return
         }
         socket.emit('game:start', { roomId: state.roomId, word: chosen }, () => { })
+        setHintHistory([])
         setState(prev => ({
             ...prev,
             word: chosen,
@@ -157,6 +162,7 @@ export function Giver() {
             clearTimeout(timeout)
             setSendingHint(false)
             if (res?.ok) {
+                setHintHistory(prev => [...prev, hint.trim()])
                 setHint('')
                 setHintSentOk(true)
                 setState(prev => ({ ...prev, error: null }))
@@ -233,12 +239,31 @@ export function Giver() {
                     </div>
                 </div>
 
-                {state.guesses.length > 0 && (
+                {(hintHistory.length > 0 || state.guesses.length > 0) && (
                     <div className="card pop">
-                        <div className="card-title">Historique des réponses</div>
-                        <ul className="list">
-                            {state.guesses.slice().reverse().map((g, i) => <li key={i}>{g}</li>)}
-                        </ul>
+                        <div className="card-title">Historique de la manche</div>
+                        <div className="row" style={{ alignItems: 'flex-start', gap: 24 }}>
+                            <div style={{ flex: 1, minWidth: 200 }}>
+                                <div className="card-sub" style={{ marginBottom: 6 }}>Mes indices</div>
+                                {hintHistory.length === 0 ? (
+                                    <div style={{ opacity: 0.6 }}>—</div>
+                                ) : (
+                                    <ul className="list">
+                                        {hintHistory.slice().reverse().map((h, i) => <li key={i}>{h}</li>)}
+                                    </ul>
+                                )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 200 }}>
+                                <div className="card-sub" style={{ marginBottom: 6 }}>Propositions du devineur</div>
+                                {state.guesses.length === 0 ? (
+                                    <div style={{ opacity: 0.6 }}>—</div>
+                                ) : (
+                                    <ul className="list">
+                                        {state.guesses.slice().reverse().map((g, i) => <li key={i}>{g}</li>)}
+                                    </ul>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
