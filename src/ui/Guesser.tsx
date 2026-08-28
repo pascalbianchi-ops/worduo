@@ -21,12 +21,32 @@ function Confetti() {
 export function Guesser() {
     const { state, socket, setState } = useGame()
     const [guess, setGuess] = useState('')
+    const [sending, setSending] = useState(false)
+    const [sentOk, setSentOk] = useState(false)
 
     const submit = () => {
-        if (!guess.trim()) return
-        console.log('[Guesser] emit game:guess', { roomId: state.roomId, guess })
-        socket.emit('game:guess', { roomId: state.roomId, guess })
-        setGuess('')
+        if (!guess.trim() || sending) return
+        setSending(true)
+        setSentOk(false)
+
+        // Filet de sécurité : débloque le bouton si le serveur ne répond pas.
+        const timeout = setTimeout(() => {
+            setSending(false)
+            setState(prev => ({ ...prev, error: "Pas de réponse du serveur, réessaie." }))
+        }, 5000)
+
+        socket.emit('game:guess', { roomId: state.roomId, guess }, (res: any) => {
+            clearTimeout(timeout)
+            setSending(false)
+            if (res?.ok) {
+                setGuess('')
+                setSentOk(true)
+                setState(prev => ({ ...prev, error: null }))
+                setTimeout(() => setSentOk(false), 1500)
+            } else {
+                setState(prev => ({ ...prev, error: res?.message || 'Proposition refusée.' }))
+            }
+        })
     }
 
     const ended = state.status === 'ended' || state.outcome !== null
@@ -55,6 +75,11 @@ export function Guesser() {
                 <div className="card pop">
                     <h2 className="card-title">Devineur</h2>
                     <div className="card-sub">Dernier indice : <b style={{ color: '#fff' }}>{state.hint ?? '—'}</b></div>
+                    {state.error && (
+                        <div style={{ marginTop: 12, padding: 10, border: '1px solid rgba(239,68,68,.4)', background: '#2a0f14', borderRadius: 12, color: '#FCA5A5' }}>
+                            ⚠️ {state.error}
+                        </div>
+                    )}
                     <div className="hr" />
                     <div className="row">
                         <input
@@ -65,7 +90,9 @@ export function Guesser() {
                             onKeyDown={e => e.key === 'Enter' && submit()}
                             style={{ flex: 1, minWidth: 260 }}
                         />
-                        <button className="btn btn-primary" onClick={submit}>Proposer</button>
+                        <button className="btn btn-primary" onClick={submit} disabled={sending || !guess.trim()}>
+                            {sending ? 'Envoi…' : sentOk ? '✓ Envoyé' : 'Proposer'}
+                        </button>
                     </div>
 
                     {state.guesses.length > 0 && (
