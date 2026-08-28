@@ -496,5 +496,3 @@ button:active { transform: translateY(0); }
   100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
 }
 `;
-
-
