@@ -40,7 +40,19 @@ export function getSocket(urlOverride?: string): Socket {
     const url = urlOverride || resolveUrl()
     if (!socket || currentUrl !== url) {
         if (socket) socket.disconnect()
-        socket = io(url, { autoConnect: false, transports: ['websocket'] })
+        socket = io(url, {
+            autoConnect: false,
+            // websocket en priorité, mais on autorise le repli en polling :
+            // sur Safari iOS, le WebSocket peut rester "gelé" quelques secondes
+            // après un retour d'arrière-plan ; le polling permet de reprendre
+            // la main plus vite le temps que le WebSocket se rétablisse.
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 500,
+            reconnectionDelayMax: 3000,
+            timeout: 10000,
+        })
         currentUrl = url
     }
     return socket
