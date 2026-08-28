@@ -4,7 +4,7 @@ import { useGame } from '../state/GameContext'
 type JoinRes = { ok: boolean; message?: string; state?: any; redirectedFrom?: string }
 
 export function Lobby() {
-  const { socket, setState } = useGame()
+  const { socket, setState, rememberSession } = useGame()
   const [pseudo, setPseudo] = useState('')
   const [ready, setReady] = useState(false)
   const [roomId, setRoomId] = useState('Salon Turquoise')
@@ -45,7 +45,7 @@ export function Lobby() {
     if (!name) { setError('Saisis un pseudo.'); return }
     setError(null)
     setReady(true)
-    setState(prev => ({ ...prev, pseudo: name as any }))
+    setState(prev => ({ ...prev, pseudo: name }))
   }
 
   const join = (role: 'giver'|'guesser', targetRoomId?: string) => {
@@ -61,7 +61,9 @@ export function Lobby() {
         if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
           setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
         }
-        setState(prev => ({ ...prev, ...res.state }))
+        const finalRoom = res.state?.roomId || finalRoomId
+        rememberSession({ roomId: finalRoom, role, pseudo: name })
+        setState(prev => ({ ...prev, ...res.state, pseudo: name }))
       } else {
         setError(res?.message || 'Impossible de rejoindre.')
       }
@@ -70,7 +72,19 @@ export function Lobby() {
 
   return (
     <div style={{padding:20, color:'#eee', fontFamily:'system-ui, sans-serif', minHeight:'100vh', background:'#0f0f18'}}>
-      <h1 style={{marginTop:0}}>WorDuo — Lobby</h1>
+      <h1 style={{
+        marginTop: 0,
+        marginBottom: 28,
+        textAlign: 'center',
+        fontSize: 40,
+        fontWeight: 800,
+        letterSpacing: -0.5,
+        background: 'linear-gradient(90deg, #a78bfa, #60a5fa, #f472b6)',
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+      }}>
+        WorDuo
+      </h1>
 
       <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
         <div style={{marginBottom:8}}>
