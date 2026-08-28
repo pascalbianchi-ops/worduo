@@ -86,73 +86,90 @@ export function Lobby() {
         WorDuo
       </h1>
 
-      <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
-        <div style={{marginBottom:8}}>
-          <label style={{display:'block', marginBottom:4}}>Pseudo</label>
-          <input
-            style={{width:'100%', padding:8, borderRadius:6, border:'1px solid #444', background:'#111', color:'#eee'}}
-            value={pseudo}
-            onChange={e=>setPseudo(e.target.value)}
-            placeholder="Ton pseudo…"
-          />
+      {/* Étape 1 : pseudo, tant qu'on n'a pas cliqué "Jouer" */}
+      {!ready && (
+        <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
+          <div style={{marginBottom:8}}>
+            <label style={{display:'block', marginBottom:4}}>Ton pseudo</label>
+            <input
+              style={{width:'100%', padding:8, borderRadius:6, border:'1px solid #444', background:'#111', color:'#eee'}}
+              value={pseudo}
+              onChange={e=>setPseudo(e.target.value)}
+              placeholder="Ton pseudo…"
+              onKeyDown={e => e.key === 'Enter' && onPlay()}
+              autoFocus
+            />
+          </div>
+          <button
+            onClick={onPlay}
+            disabled={!pseudo.trim()}
+            style={{width:'100%', padding:'10px 12px', borderRadius:6, border:'1px solid #666', background:'#1f6feb', color:'#fff', cursor:'pointer', fontWeight:700}}
+          >
+            Jouer
+          </button>
         </div>
-        <button
-          onClick={onPlay}
-          disabled={!pseudo.trim()}
-          style={{padding:'8px 12px', borderRadius:6, border:'1px solid #666', background:'#1f6feb', color:'#fff', cursor:'pointer'}}
-        >
-          Jouer
-        </button>
-        {ready && <span style={{marginLeft:10, color:'#9fe'}}>✅ prêt</span>}
-      </div>
+      )}
 
-      <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
-        <div style={{marginBottom:8}}>
-          <label style={{display:'block', marginBottom:4}}>Salon</label>
-          <input
-            style={{width:'100%', padding:8, borderRadius:6, border:'1px solid #444', background:'#111', color:'#eee'}}
-            value={roomId}
-            onChange={e=>setRoomId(e.target.value)}
-            placeholder="Nom exact du salon…"
-          />
+      {/* Étape 2 : choix du rôle, une fois le pseudo validé */}
+      {ready && (
+        <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
+          <div style={{marginBottom:12, display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+            <span>Salut <b>{pseudo}</b> 👋</span>
+            <button onClick={()=>setReady(false)} style={{background:'none', border:'none', color:'#8ab4ff', cursor:'pointer', fontSize:13}}>
+              changer de pseudo
+            </button>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <label style={{display:'block', marginBottom:4, opacity:.8, fontSize:13}}>Salon (par défaut : {roomId})</label>
+            <input
+              style={{width:'100%', padding:8, borderRadius:6, border:'1px solid #444', background:'#111', color:'#eee'}}
+              value={roomId}
+              onChange={e=>setRoomId(e.target.value)}
+              placeholder="Nom du salon…"
+            />
+          </div>
+
+          <div style={{opacity:.85, marginBottom:8, fontSize:14}}>Tu veux jouer comme :</div>
+          <div style={{display:'flex', gap:8}}>
+            <button onClick={()=>join('giver')}
+              style={{flex:1, padding:'14px 12px', borderRadius:8, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer', fontWeight:700}}
+            >
+              🧠 Meneur
+            </button>
+            <button onClick={()=>join('guesser')}
+              style={{flex:1, padding:'14px 12px', borderRadius:8, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer', fontWeight:700}}
+            >
+              🔍 Devineur
+            </button>
+          </div>
         </div>
-        <div style={{display:'flex', gap:8}}>
-          <button onClick={()=>join('giver')} disabled={!ready}
-            style={{padding:'8px 12px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
-          >
-            Rejoindre (Meneur)
-          </button>
-          <button onClick={()=>join('guesser')} disabled={!ready}
-            style={{padding:'8px 12px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
-          >
-            Rejoindre (Devineur)
-          </button>
-        </div>
-        {!ready && <div style={{marginTop:8, opacity:.8}}>Saisis un pseudo puis clique « Jouer ».</div>}
-      </div>
+      )}
 
       {error && <div style={{marginBottom:12, padding:10, border:'1px solid #a33', background:'#2a0f14', borderRadius:8, color:'#FCA5A5'}}>⚠️ {error}</div>}
       {info && <div style={{marginBottom:12, padding:10, border:'1px solid #5865f2', background:'#0b0f22', borderRadius:8}}>ℹ️ {info}</div>}
 
-      <div style={{border:'1px solid #333', borderRadius:8, padding:12}}>
-        <h2 style={{marginTop:0}}>Rooms disponibles</h2>
-        {rooms.length === 0 && <div>Aucune room visible.</div>}
-        <ul style={{listStyle:'none', padding:0, margin:0, display:'grid', gap:8}}>
-          {rooms.map(r => (
-            <li key={r.id} style={{border:'1px solid #222', borderRadius:8, padding:10}}>
-              <div><b>{r.host}</b> attend un <b>{r.waitingFor}</b> — <i>{r.color}</i></div>
-              <div style={{marginTop:8, display:'flex', gap:8}}>
-                <button onClick={()=>join('giver', r.id)} disabled={!ready}
-                  style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
-                >Rejoindre en Meneur</button>
-                <button onClick={()=>join('guesser', r.id)} disabled={!ready}
-                  style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
-                >Rejoindre en Devineur</button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {ready && (
+        <div style={{border:'1px solid #333', borderRadius:8, padding:12}}>
+          <h2 style={{marginTop:0}}>Rooms disponibles</h2>
+          {rooms.length === 0 && <div style={{opacity:.7}}>Aucune room visible pour l'instant.</div>}
+          <ul style={{listStyle:'none', padding:0, margin:0, display:'grid', gap:8}}>
+            {rooms.map(r => (
+              <li key={r.id} style={{border:'1px solid #222', borderRadius:8, padding:10}}>
+                <div><b>{r.host}</b> attend un <b>{r.waitingFor}</b> — <i>{r.color}</i></div>
+                <div style={{marginTop:8, display:'flex', gap:8}}>
+                  <button onClick={()=>join('giver', r.id)}
+                    style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
+                  >Rejoindre en Meneur</button>
+                  <button onClick={()=>join('guesser', r.id)}
+                    style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
+                  >Rejoindre en Devineur</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
