@@ -114,6 +114,17 @@ export function Giver() {
         }))
     }
 
+    // Dès que la banque de mots est chargée, si aucun mot n'est encore choisi
+    // pour cette manche (arrivée du meneur, ou reconnexion), on en tire un
+    // automatiquement — sans attendre un clic sur "Changer de mot".
+    useEffect(() => {
+        if (loadingWords) return
+        if (!bank.length) return
+        if (state.word) return
+        start()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loadingWords, bank, state.word])
+
     const send = () => {
         if (!hint.trim()) return
         socket.emit('game:hint', { roomId: state.roomId, hint }, (res: any) => {
