@@ -48,7 +48,7 @@ function Confetti() {
 }
 
 export function Giver() {
-    const { state, socket, setState } = useGame()
+    const { state, socket, setState, ensureConnected, isConnected } = useGame()
 
     // --- Banque de mots ---
     const [bank, setBank] = useState<string[]>([])
@@ -98,9 +98,15 @@ export function Giver() {
         return (w || '').toUpperCase()
     }, [bank])
 
-    const start = () => {
+    const start = async () => {
         const chosen = pickWord()
         if (!chosen) return
+        try {
+            await ensureConnected()
+        } catch {
+            setState(prev => ({ ...prev, error: 'Connexion au serveur perdue, réessaie.' }))
+            return
+        }
         socket.emit('game:start', { roomId: state.roomId, word: chosen }, () => { })
         setState(prev => ({
             ...prev,
@@ -127,10 +133,18 @@ export function Giver() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadingWords, bank, state.word])
 
-    const send = () => {
+    const send = async () => {
         if (!hint.trim() || sendingHint) return
         setSendingHint(true)
         setHintSentOk(false)
+
+        try {
+            await ensureConnected()
+        } catch {
+            setSendingHint(false)
+            setState(prev => ({ ...prev, error: 'Connexion au serveur perdue, réessaie.' }))
+            return
+        }
 
         // Filet de sécurité : si le serveur ne répond jamais (coupure réseau…),
         // on débloque le bouton après 5s plutôt que de rester bloqué "en cours".
@@ -173,6 +187,9 @@ export function Giver() {
                     <div className="badge">Room: {state.roomId ?? '—'}</div>
                     <div className={`pill ${ended ? (isWin ? 'ok' : 'end') : state.status === 'running' ? 'run' : 'ok'}`}>
                         Statut : {state.status}
+                    </div>
+                    <div className={`pill ${isConnected ? 'ok' : 'end'}`}>
+                        {isConnected ? '🟢 Connecté' : '🔴 Déconnecté'}
                     </div>
                 </div>
             </div>
