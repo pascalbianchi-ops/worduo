@@ -203,7 +203,7 @@ export function Giver() {
             <div className={`container ${isLose ? 'shake' : ''}`}>
                 <div className="card pop">
                     <h2 className="card-title">
-                        Meneur — mot : <span className="gradient-text">{state.word ?? '—'}</span>
+                        <b>{state.pseudo ?? 'Toi'}</b> fais deviner <span className="gradient-text">{state.word ?? '—'}</span>
                     </h2>
 
                     {loadingWords && <div style={{ marginBottom: 8, opacity: 0.8 }}>Chargement des mots…</div>}
