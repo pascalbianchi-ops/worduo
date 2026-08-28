@@ -87,11 +87,24 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on('disconnect', onDisconnect)
     socket.on('connect_error', onConnectError)
 
+    // Sur Safari iOS, revenir au premier plan (changement d'onglet, verrouillage
+    // d'écran) peut laisser le WebSocket "gelé" sans déclencher immédiatement
+    // un event 'disconnect'. On force une vérification/reconnexion à chaque
+    // retour de visibilité pour éviter les emit silencieusement perdus.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[GameContext] page visible again, checking socket…')
+        connectIfNeeded()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
     return () => {
       mounted.current = false
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('connect_error', onConnectError)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       // ne pas disconnect() ici : on veut garder la session si HMR
     }
   }, [socket])
