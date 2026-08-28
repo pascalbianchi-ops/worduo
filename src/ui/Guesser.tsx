@@ -99,7 +99,7 @@ export function Guesser() {
                             onChange={e => setGuess(e.target.value)}
                             placeholder="Votre proposition..."
                             onKeyDown={e => e.key === 'Enter' && submit()}
-                            style={{ flex: 1, minWidth: 260 }}
+                            style={{ flex: '1 1 200px', minWidth: 0 }}
                         />
                         <button className="btn btn-primary" onClick={submit} disabled={sending || !guess.trim()}>
                             {sending ? 'Envoi…' : sentOk ? '✓ Envoyé' : 'Proposer'}
