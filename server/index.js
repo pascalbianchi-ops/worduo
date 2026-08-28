@@ -17,7 +17,7 @@ const frenchWords = require('an-array-of-french-words')
 // de jargon technique/financier) — générée en croisant un dictionnaire de
 // noms communs avec une liste de fréquence d'usage. Utilisée en priorité
 // pour proposer des mots faciles à faire deviner.
-const commonWords = require('./Mots-courants.json')
+const commonWords = require('./mots-courants.json')
 
 const app = express()
 app.use(cors())
@@ -396,7 +396,7 @@ const distDir = path.join(__dirname, '..', 'dist')
 app.use(express.static(distDir))
 
 // ================== Catch-all SPA ==================
-app.get('*', (req, res) => {
+app.get('/*splat', (req, res) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
     return res.status(404).end()
   }
