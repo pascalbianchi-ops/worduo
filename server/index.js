@@ -222,10 +222,20 @@ const server = http.createServer(app)
 const io = new Server(server, {
   path: '/socket.io',
   cors: { origin: '*', methods: ['GET', 'POST'] },
+  // Render (et les proxys en général) peuvent couper une connexion HTTP
+  // silencieuse plus vite que le défaut de Socket.IO. On élargit les délais
+  // pour éviter des déconnexions prématurées pendant un simple temps de
+  // réflexion du joueur (rédiger un indice, chercher un mot...).
+  pingTimeout: 30000,
+  pingInterval: 25000,
 })
 
 io.on('connection', (socket) => {
   console.log('[SOCKET] client connected', socket.id)
+
+  socket.onAny((eventName, ...args) => {
+    console.log('[SOCKET IN]', socket.id, eventName, JSON.stringify(args).slice(0, 200))
+  })
 
   // Join / switch de room
   socket.on('game:join', (payload, cb) => {
@@ -264,15 +274,15 @@ io.on('connection', (socket) => {
   })
 
   // Le meneur démarre une manche avec un mot
-  socket.on('game:start', (payload) => {
+  socket.on('game:start', (payload, cb) => {
     try {
       const info = socketInfo.get(socket.id)
-      if (!info) return
+      if (!info) return cb?.({ ok: false, message: 'Non connecté à une room.' })
       const r = rooms.get(info.roomId)
-      if (!r || info.role !== 'giver') return // seul le meneur peut démarrer
+      if (!r || info.role !== 'giver') return cb?.({ ok: false, message: 'Seul le meneur peut démarrer une manche.' })
 
       const word = String(payload?.word || '').trim().toUpperCase()
-      if (!word) return
+      if (!word) return cb?.({ ok: false, message: 'Mot vide.' })
 
       r.game = {
         status: 'running',
@@ -285,41 +295,52 @@ io.on('connection', (socket) => {
       }
 
       broadcastState(io, r)
+      cb?.({ ok: true })
     } catch (e) {
       console.error('[START] error', e)
+      cb?.({ ok: false, message: 'Erreur serveur.' })
     }
   })
 
   // Le meneur envoie un indice
-  socket.on('game:hint', (payload) => {
+  socket.on('game:hint', (payload, cb) => {
     try {
       const info = socketInfo.get(socket.id)
-      if (!info) return
+      if (!info) return cb?.({ ok: false, message: 'Non connecté à une room.' })
       const r = rooms.get(info.roomId)
-      if (!r || info.role !== 'giver' || r.game.status !== 'running') return
+      if (!r || info.role !== 'giver') return cb?.({ ok: false, message: 'Seul le meneur peut envoyer un indice.' })
+      if (r.game.status !== 'running') return cb?.({ ok: false, message: 'Aucune manche en cours.' })
 
-      r.game.hint = String(payload?.hint || '').trim()
+      const hint = String(payload?.hint || '').trim()
+      if (!hint) return cb?.({ ok: false, message: 'Indice vide.' })
+
+      r.game.hint = hint
       broadcastState(io, r)
+      cb?.({ ok: true })
     } catch (e) {
       console.error('[HINT] error', e)
+      cb?.({ ok: false, message: 'Erreur serveur.' })
     }
   })
 
   // Le devineur propose un mot
-  socket.on('game:guess', (payload) => {
+  socket.on('game:guess', (payload, cb) => {
     try {
       const info = socketInfo.get(socket.id)
-      if (!info) return
+      if (!info) return cb?.({ ok: false, message: 'Non connecté à une room.' })
       const r = rooms.get(info.roomId)
-      if (!r || info.role !== 'guesser' || r.game.status !== 'running') return
+      if (!r || info.role !== 'guesser') return cb?.({ ok: false, message: 'Seul le devineur peut proposer un mot.' })
+      if (r.game.status !== 'running') return cb?.({ ok: false, message: 'Aucune manche en cours.' })
 
       const guess = String(payload?.guess || '').trim().toUpperCase()
-      if (!guess) return
+      if (!guess) return cb?.({ ok: false, message: 'Proposition vide.' })
 
       r.game.guesses.push(guess)
       r.game.attempts += 1
 
+      let correct = false
       if (guess === r.game.word) {
+        correct = true
         r.game.status = 'ended'
         r.game.outcome = 'win'
         r.game.revealWord = r.game.word
@@ -330,8 +351,10 @@ io.on('connection', (socket) => {
       }
 
       broadcastState(io, r)
+      cb?.({ ok: true, correct })
     } catch (e) {
       console.error('[GUESS] error', e)
+      cb?.({ ok: false, message: 'Erreur serveur.' })
     }
   })
 
@@ -353,8 +376,8 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on('disconnect', () => {
-    console.log('[SOCKET] client disconnected', socket.id)
+  socket.on('disconnect', (reason) => {
+    console.log('[SOCKET] client disconnected', socket.id, 'reason:', reason)
     const info = socketInfo.get(socket.id)
     const r = info ? rooms.get(info.roomId) : null
     leaveCurrentRoom(socket)
