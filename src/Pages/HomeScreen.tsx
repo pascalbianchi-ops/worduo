@@ -1,4 +1,4 @@
-﻿// src/Pages/HomeScreen.tsx
+// src/Pages/HomeScreen.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Props = { onStart: () => void };
@@ -44,15 +44,15 @@ function FireworksCanvas() {
     const last = useRef<number>(0);
     const [started, setStarted] = useState(false);
 
-    // Config
+    // Config — volontairement allégée pour rester fluide sur mobile.
     const cfg = useMemo(
         () => ({
             gravity: 0.22,
             air: 0.995,
             sparkAir: 0.985,
-            launchEveryMs: 800,
-            maxParticles: 1200,
-            burstParticles: [60, 120], // min/max on burst
+            launchEveryMs: 2600,
+            maxParticles: 220,
+            burstParticles: [18, 32], // min/max on burst
         }),
         []
     );
@@ -82,6 +82,12 @@ function FireworksCanvas() {
     // Tap/Click to burst
     useEffect(() => {
         const onTap = (e: MouseEvent | TouchEvent) => {
+            // On ignore le tap s'il vient d'un élément interactif (bouton,
+            // lien...) pour ne pas déclencher un feu d'artifice juste
+            // derrière le bouton "Jouer" au moment où on clique dessus.
+            const target = e.target as HTMLElement | null;
+            if (target && target.closest("button, a, input, textarea")) return;
+
             const canvas = ref.current!;
             const rect = canvas.getBoundingClientRect();
             let x = window.innerWidth / 2;
