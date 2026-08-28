@@ -165,6 +165,9 @@ function leaveCurrentRoom(socket) {
 
 // ================== API ==================
 app.get('/api/health', (req, res) => res.json({ ok: true }))
+// Render vérifie par défaut un chemin /health (configurable dans les Settings
+// du service). On l'expose aussi pour ne pas dépendre de ce réglage externe.
+app.get('/health', (req, res) => res.json({ ok: true }))
 
 // Fournit une sélection aléatoire de mots français pour le meneur
 app.get('/api/words', (req, res) => {
