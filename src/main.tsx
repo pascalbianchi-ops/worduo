@@ -20,7 +20,9 @@ document.addEventListener('touchmove', (e) => {
     const touchY = e.touches[0].clientY
     const scrollingDown = touchY > touchStartY
     const atTop = window.scrollY <= 0
-    if (atTop && scrollingDown) {
+    const active = document.activeElement
+    const isEditing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+    if (atTop && scrollingDown && !isEditing) {
         e.preventDefault()
     }
 }, { passive: false })
