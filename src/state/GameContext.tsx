@@ -160,7 +160,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   // ————————— Handlers “jeu” —————————
   useEffect(() => {
-    const onState = (s: Partial<GameState> & { reason?: Outcome; word?: string }) =>
+    const onState = (s: Partial<GameState>) =>
       setState(prev => {
         const next: GameState = { ...prev, ...s }
 
@@ -168,8 +168,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         if (typeof (s as any).maxAttempts === 'number') next.maxAttempts = (s as any).maxAttempts as number
 
         if (s.status === 'ended') {
-          next.outcome = (s as any).reason ?? prev.outcome ?? null
-          next.revealWord = (s as any).word ?? prev.revealWord ?? prev.word ?? null
+          // Le serveur envoie directement outcome et revealWord (voir
+          // server/index.js, publicState()) — la copie { ...prev, ...s }
+          // plus haut les a déjà appliqués correctement. On ne fait que
+          // sécuriser un repli sur l'ancienne valeur si jamais l'un des
+          // deux champs manquait dans ce payload précis.
+          next.outcome = s.outcome ?? prev.outcome ?? null
+          next.revealWord = s.revealWord ?? prev.revealWord ?? prev.word ?? null
           console.log('[CLIENT onState] ended ->', { outcome: next.outcome, revealWord: next.revealWord })
           return next
         }
