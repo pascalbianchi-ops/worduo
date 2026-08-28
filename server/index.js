@@ -82,7 +82,7 @@ const rooms = new Map()
 // socket -> { roomId, role, pseudo }
 const socketInfo = new Map()
 
-const MAX_ATTEMPTS = 6
+const MAX_ATTEMPTS = 2
 
 function freshGame() {
   return {
