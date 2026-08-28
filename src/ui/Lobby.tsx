@@ -70,7 +70,7 @@ export function Lobby() {
 
   return (
     <div style={{padding:20, color:'#eee', fontFamily:'system-ui, sans-serif', minHeight:'100vh', background:'#0f0f18'}}>
-      <h1 style={{marginTop:0}}>WorDuo — Lobby (mode secours)</h1>
+      <h1 style={{marginTop:0}}>WorDuo — Lobby</h1>
 
       <div style={{border:'1px solid #333', borderRadius:8, padding:12, marginBottom:16}}>
         <div style={{marginBottom:8}}>
