@@ -7,6 +7,7 @@ type Outcome = 'win' | 'lose' | null
 type GameState = {
   roomId: string | null
   role: Role
+  pseudo: string | null
   word: string | null
   hint: string | null
   status: 'idle' | 'running' | 'ended'
@@ -22,6 +23,7 @@ type GameState = {
 const defaultState: GameState = {
   roomId: null,
   role: null,
+  pseudo: null,
   word: null,
   hint: null,
   status: 'idle',
@@ -34,6 +36,31 @@ const defaultState: GameState = {
   maxAttempts: 3,
 }
 
+// Clé localStorage pour retenter automatiquement de rejoindre la même
+// partie si la page est rechargée par accident (pull-to-refresh, fermeture
+// d'onglet...). On ne garde que le strict nécessaire pour un game:join.
+const SESSION_KEY = 'worduo:session'
+
+type SavedSession = { roomId: string; role: 'giver' | 'guesser'; pseudo: string }
+
+function saveSession(s: SavedSession) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)) } catch { }
+}
+
+function loadSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed?.roomId && parsed?.role && parsed?.pseudo) return parsed
+    return null
+  } catch { return null }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY) } catch { }
+}
+
 type Ctx = {
   state: GameState
   setState: React.Dispatch<React.SetStateAction<GameState>>
@@ -41,6 +68,10 @@ type Ctx = {
   isConnected: boolean
   /** Garantit la connexion avant d'émettre (utilise-la dans les handlers des boutons) */
   ensureConnected: () => Promise<void>
+  /** À appeler juste après un game:join réussi, pour permettre la reconnexion auto */
+  rememberSession: (s: SavedSession) => void
+  /** À appeler pour quitter définitivement (bouton "Quitter", fin de partie voulue) */
+  forgetSession: () => void
 }
 
 const GameCtx = createContext<Ctx | null>(null)
@@ -67,6 +98,24 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const onConnect = () => {
       console.log('[GameContext] ✅ connected, id=', socket.id)
       if (mounted.current) setIsConnected(true)
+
+      // Reconnexion auto : si une session a été sauvegardée (page rechargée
+      // par accident pendant une partie), on retente de rejoindre la même
+      // room/rôle automatiquement plutôt que de laisser l'utilisateur au
+      // lobby vide.
+      const saved = loadSession()
+      if (saved && mounted.current) {
+        socket.emit('game:join', saved, (res: any) => {
+          if (!mounted.current) return
+          if (res?.ok) {
+            setState(prev => ({ ...prev, ...res.state, roomId: saved.roomId, role: saved.role, pseudo: saved.pseudo }))
+          } else {
+            // La room n'existe plus ou le rôle est pris ailleurs : on abandonne
+            // la session sauvegardée pour retomber proprement sur le lobby.
+            clearSession()
+          }
+        })
+      }
     }
 
     const onDisconnect = (reason: string) => {
@@ -198,7 +247,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <GameCtx.Provider value={{ state, setState, socket, isConnected, ensureConnected }}>
+    <GameCtx.Provider value={{
+      state, setState, socket, isConnected, ensureConnected,
+      rememberSession: saveSession,
+      forgetSession: clearSession,
+    }}>
       {children}
     </GameCtx.Provider>
   )
