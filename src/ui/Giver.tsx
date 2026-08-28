@@ -227,7 +227,7 @@ export function Giver() {
                             onChange={e => setHint(e.target.value)}
                             placeholder="Écrire un indice percutant..."
                             onKeyDown={e => e.key === 'Enter' && send()}
-                            style={{ flex: 1, minWidth: 260 }}
+                            style={{ flex: '1 1 200px', minWidth: 0 }}
                         />
                         <button className="btn btn-primary" onClick={send} disabled={sendingHint || !hint.trim()}>
                             {sendingHint ? 'Envoi…' : hintSentOk ? '✓ Envoyé' : 'Envoyer l’indice'}
@@ -243,7 +243,7 @@ export function Giver() {
                     <div className="card pop">
                         <div className="card-title">Historique de la manche</div>
                         <div className="row" style={{ alignItems: 'flex-start', gap: 24 }}>
-                            <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                                 <div className="card-sub" style={{ marginBottom: 6 }}>Mes indices</div>
                                 {hintHistory.length === 0 ? (
                                     <div style={{ opacity: 0.6 }}>—</div>
@@ -253,7 +253,7 @@ export function Giver() {
                                     </ul>
                                 )}
                             </div>
-                            <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                                 <div className="card-sub" style={{ marginBottom: 6 }}>Propositions du devineur</div>
                                 {state.guesses.length === 0 ? (
                                     <div style={{ opacity: 0.6 }}>—</div>
