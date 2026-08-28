@@ -57,6 +57,8 @@ export function Giver() {
 
     // --- Saisie de l’indice ---
     const [hint, setHint] = useState('')
+    const [sendingHint, setSendingHint] = useState(false)
+    const [hintSentOk, setHintSentOk] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -126,11 +128,25 @@ export function Giver() {
     }, [loadingWords, bank, state.word])
 
     const send = () => {
-        if (!hint.trim()) return
+        if (!hint.trim() || sendingHint) return
+        setSendingHint(true)
+        setHintSentOk(false)
+
+        // Filet de sécurité : si le serveur ne répond jamais (coupure réseau…),
+        // on débloque le bouton après 5s plutôt que de rester bloqué "en cours".
+        const timeout = setTimeout(() => {
+            setSendingHint(false)
+            setState(prev => ({ ...prev, error: "Pas de réponse du serveur, réessaie." }))
+        }, 5000)
+
         socket.emit('game:hint', { roomId: state.roomId, hint }, (res: any) => {
+            clearTimeout(timeout)
+            setSendingHint(false)
             if (res?.ok) {
                 setHint('')
+                setHintSentOk(true)
                 setState(prev => ({ ...prev, error: null }))
+                setTimeout(() => setHintSentOk(false), 1500)
             } else {
                 setState(prev => ({ ...prev, error: res?.message || 'Indice refusé.' }))
             }
@@ -190,7 +206,9 @@ export function Giver() {
                             onKeyDown={e => e.key === 'Enter' && send()}
                             style={{ flex: 1, minWidth: 260 }}
                         />
-                        <button className="btn btn-primary" onClick={send}>Envoyer l’indice</button>
+                        <button className="btn btn-primary" onClick={send} disabled={sendingHint || !hint.trim()}>
+                            {sendingHint ? 'Envoi…' : hintSentOk ? '✓ Envoyé' : 'Envoyer l’indice'}
+                        </button>
                         <button className="btn btn-ghost" onClick={start} disabled={loadingWords || !bank.length}>
                             Changer de mot
                         </button>
