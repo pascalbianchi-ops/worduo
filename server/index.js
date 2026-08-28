@@ -13,6 +13,11 @@ const require = createRequire(import.meta.url)
 // l'attribut "with { type: 'json' }" selon la version de Node. On passe par
 // createRequire (CommonJS) qui n'a pas cette contrainte et reste stable.
 const frenchWords = require('an-array-of-french-words')
+// Liste courte (~2500) de noms communs courants (pas de verbes conjugués, pas
+// de jargon technique/financier) — générée en croisant un dictionnaire de
+// noms communs avec une liste de fréquence d'usage. Utilisée en priorité
+// pour proposer des mots faciles à faire deviner.
+const commonWords = require('./Mots-courants.json')
 
 const app = express()
 app.use(cors())
@@ -21,6 +26,7 @@ app.use(express.json())
 // ================== Banque de mots ==================
 // Normalise une fois au démarrage : minuscules, dédupliqué.
 const ALL_WORDS = Array.from(new Set(frenchWords.map((w) => String(w).toLowerCase().trim())))
+const COMMON_WORDS = Array.from(new Set(commonWords.map((w) => String(w).toLowerCase().trim())))
 
 function hasHyphen(w) {
   return w.includes('-') || w.includes("'")
@@ -31,12 +37,12 @@ function isLikelyInfinitive(w) {
 }
 
 function filterWords({ minLen, maxLen, allowHyphen, onlyInfinitive, mode }) {
-  return ALL_WORDS.filter((w) => {
+  // mode 'core' = liste courte de mots usuels, sans verbes conjugués ni jargon
+  const source = mode === 'core' ? COMMON_WORDS : ALL_WORDS
+  return source.filter((w) => {
     if (w.length < minLen || w.length > maxLen) return false
     if (!allowHyphen && hasHyphen(w)) return false
     if (onlyInfinitive && !isLikelyInfinitive(w)) return false
-    // mode 'core' = on évite les mots avec accents/caractères spéciaux, plus simples à deviner à l'oral
-    if (mode === 'core' && /[^a-z]/i.test(w)) return false
     return true
   })
 }
