@@ -25,6 +25,14 @@ html, body, #root {
     margin: 0
 }
 
+/* Empêche le "tirer vers le bas pour actualiser" des navigateurs mobiles
+   (Safari iOS notamment), qui recharge toute la page et fait perdre la
+   partie en cours. overscroll-behavior-y bloque le rebond en haut de page
+   sans gêner le défilement normal du contenu. */
+html, body {
+    overscroll-behavior-y: contain;
+}
+
 body {
     color: var(--text);
     background: radial-gradient(1200px 600px at 10% -10%, rgba(124,92,255,.35), transparent 55%), radial-gradient(900px 500px at 120% 10%, rgba(106,227,255,.35), transparent 50%), linear-gradient(180deg, var(--bg), var(--bg-2) 60%, #0a0b12);
