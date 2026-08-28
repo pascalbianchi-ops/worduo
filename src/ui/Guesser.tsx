@@ -19,15 +19,23 @@ function Confetti() {
 }
 
 export function Guesser() {
-    const { state, socket, setState } = useGame()
+    const { state, socket, setState, ensureConnected, isConnected } = useGame()
     const [guess, setGuess] = useState('')
     const [sending, setSending] = useState(false)
     const [sentOk, setSentOk] = useState(false)
 
-    const submit = () => {
+    const submit = async () => {
         if (!guess.trim() || sending) return
         setSending(true)
         setSentOk(false)
+
+        try {
+            await ensureConnected()
+        } catch {
+            setSending(false)
+            setState(prev => ({ ...prev, error: 'Connexion au serveur perdue, réessaie.' }))
+            return
+        }
 
         // Filet de sécurité : débloque le bouton si le serveur ne répond pas.
         const timeout = setTimeout(() => {
@@ -67,6 +75,9 @@ export function Guesser() {
                     <div className="badge">Room: {state.roomId ?? '—'}</div>
                     <div className={`pill ${ended ? (isWin ? 'ok' : 'end') : state.status === 'running' ? 'run' : 'ok'}`}>
                         Statut : {state.status}
+                    </div>
+                    <div className={`pill ${isConnected ? 'ok' : 'end'}`}>
+                        {isConnected ? '🟢 Connecté' : '🔴 Déconnecté'}
                     </div>
                 </div>
             </div>
