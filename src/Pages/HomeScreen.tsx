@@ -205,10 +205,7 @@ function FireworksCanvas() {
     }, [cfg]);
 
     return (
-        <>
-            <canvas ref={ref} style={styles.canvas} aria-hidden />
-            {!started && <TapPulse />}
-        </>
+        <canvas ref={ref} style={styles.canvas} aria-hidden />
     );
 }
 
@@ -363,14 +360,6 @@ function LogoTitle() {
     );
 }
 
-function TapPulse() {
-    return (
-        <div style={styles.tapPulse} className="pulse">
-            Toucher pour lancer 🎆
-        </div>
-    );
-}
-
 /* =========================
  * Styles
  * ========================= */
@@ -405,7 +394,7 @@ const styles: Record<string, React.CSSProperties> = {
         gap: 16,
     },
     title: {
-        fontSize: "64px",
+        fontSize: "clamp(32px, 12vw, 64px)",
         lineHeight: 1,
         letterSpacing: 1.2,
         margin: "0 0 12px",
@@ -496,3 +485,5 @@ button:active { transform: translateY(0); }
   100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
 }
 `;
+
+
