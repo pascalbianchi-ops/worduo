@@ -85,6 +85,29 @@ const socketInfo = new Map()
 
 const MAX_ATTEMPTS = 2
 
+// Une room vide n'est supprimée qu'après ce délai : si les deux joueurs
+// perdent le réseau en même temps (métro, veille du téléphone...), la manche
+// en cours doit les attendre au lieu d'être effacée à la première seconde.
+const EMPTY_ROOM_TTL = 2 * 60 * 1000
+const emptyRoomTimers = new Map()
+
+function cancelRoomDeletion(roomId) {
+  const t = emptyRoomTimers.get(roomId)
+  if (t) {
+    clearTimeout(t)
+    emptyRoomTimers.delete(roomId)
+  }
+}
+
+function scheduleRoomDeletion(roomId) {
+  cancelRoomDeletion(roomId)
+  emptyRoomTimers.set(roomId, setTimeout(() => {
+    emptyRoomTimers.delete(roomId)
+    const r = rooms.get(roomId)
+    if (r && r.players === 0) rooms.delete(roomId)
+  }, EMPTY_ROOM_TTL))
+}
+
 function freshGame() {
   return {
     status: 'idle',
@@ -99,6 +122,7 @@ function freshGame() {
 }
 
 function ensureRoom(roomId) {
+  cancelRoomDeletion(roomId)
   if (!rooms.has(roomId)) {
     rooms.set(roomId, {
       id: roomId,
@@ -159,7 +183,7 @@ function leaveCurrentRoom(socket) {
     r.players = Math.max(0, r.players - 1)
     if (role && r.roles[role] !== undefined) r.roles[role] = false
     if (r.players === 0) {
-      rooms.delete(roomId)
+      scheduleRoomDeletion(roomId)
     } else {
       // si l'hôte est parti, on ne recalcule pas vraiment — on laisse comme est
       // (ou on pourrait choisir le prochain connecté comme host)
@@ -229,6 +253,8 @@ app.get('/api/words', (req, res) => {
 app.get('/api/rooms', (req, res) => {
   const list = []
   for (const r of rooms.values()) {
+    // une room vide attend le retour de ses joueurs, pas de nouveaux venus
+    if (r.players === 0) continue
     const waitingFor = computeWaitingFor(r)
     if (waitingFor) {
       list.push({
