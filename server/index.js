@@ -83,7 +83,7 @@ const rooms = new Map()
 // socket -> { roomId, role, pseudo }
 const socketInfo = new Map()
 
-const MAX_ATTEMPTS = 2
+const MAX_ATTEMPTS = 5
 
 // Une room vide n'est supprimée qu'après ce délai : si les deux joueurs
 // perdent le réseau en même temps (métro, veille du téléphone...), la manche
@@ -161,6 +161,7 @@ function publicState(r, forSocketId) {
     // le mot n'est révélé au devineur que si la partie est terminée
     revealWord: r.game.status === 'ended' ? r.game.revealWord : null,
     attempts: r.game.attempts,
+    maxAttempts: MAX_ATTEMPTS,
     round: r.game.round,
     players: r.players,
   }

@@ -35,7 +35,7 @@ const defaultState: GameState = {
   outcome: null,
   revealWord: null,
   attempts: 0,
-  maxAttempts: 3,
+  maxAttempts: 5,
   round: null,
 }
 

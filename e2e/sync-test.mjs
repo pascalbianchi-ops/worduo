@@ -194,10 +194,13 @@ const scenarios = {
     await giver.page.getByRole('button', { name: 'Nouvelle manche' }).click()
     const word2 = await readWord(giver)
     await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null }, guesser: { hint: '—' } }, 'nouvelle manche')
-    // 2 mauvaises réponses → perdu
-    await sendGuess(guesser, 'FAUX1')
-    await expectSync(report, giver, guesser, { both: { guesses: ['FAUX1'] } }, 'manche 2 : 1re réponse')
-    await sendGuess(guesser, 'FAUX2')
+    // 5 mauvaises réponses → perdu
+    const faux = ['FAUX1', 'FAUX2', 'FAUX3', 'FAUX4']
+    for (let i = 0; i < faux.length; i++) {
+      await sendGuess(guesser, faux[i])
+      await expectSync(report, giver, guesser, { both: { guesses: faux.slice(0, i + 1), status: 'running' } }, `manche 2 : réponse ${i + 1}`)
+    }
+    await sendGuess(guesser, 'FAUX5')
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'lose', reveal: word2 } }, 'manche 2 : perdu')
   },
 
