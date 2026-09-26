@@ -66,6 +66,16 @@ function clearSession() {
   try { localStorage.removeItem(SESSION_KEY) } catch { }
 }
 
+// Chaque nouvelle version déployée repart de zéro : une session sauvegardée
+// par une version précédente est oubliée dès le chargement de la page.
+const VERSION_KEY = 'worduo:version'
+try {
+  if (localStorage.getItem(VERSION_KEY) !== __APP_VERSION__) {
+    localStorage.removeItem(SESSION_KEY)
+    localStorage.setItem(VERSION_KEY, __APP_VERSION__)
+  }
+} catch { }
+
 // Identifiant stable du joueur (survit aux reconnexions et rechargements) :
 // permet au serveur de reconnaître qu'un nouveau socket appartient au même
 // joueur et de lui rendre son rôle, même si l'ancien socket n'est pas encore

@@ -1,5 +1,6 @@
 // src/Pages/HomeScreen.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { VersionBadge } from "../ui/VersionBadge";
 
 type Props = { onStart: () => void };
 
@@ -11,6 +12,7 @@ export default function HomeScreen({ onStart }: Props) {
             {/* Contenu UI au-dessus du canvas */}
             <div style={styles.content}>
                 <LogoTitle />
+                <div style={{ textAlign: "center", marginBottom: 12, fontSize: 14 }}><VersionBadge /></div>
                 <p style={styles.tagline}>
                     Un jeu de mots à deux… <b>où chaque mot compte</b> !
                 </p>

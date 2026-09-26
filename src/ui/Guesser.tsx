@@ -67,7 +67,7 @@ export function Guesser() {
         <>
             <div className="appbar">
                 <div className="appbar-inner">
-                    <div className="brand"><div className="logo" />WorDuo <VersionBadge /></div>
+                    <div className="brand"><div className="logo" /><div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>WorDuo<VersionBadge /></div></div>
                     <div className="badge">Room: {state.roomId ?? '—'}</div>
                     <div className={`pill ${ended ? (isWin ? 'ok' : 'end') : state.status === 'running' ? 'run' : 'ok'}`}>
                         Statut : {state.status}

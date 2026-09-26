@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useGame, getPlayerId } from '../state/GameContext'
 import { api } from '../lib/api'
+import { VersionBadge } from './VersionBadge'
 
 type JoinRes = { ok: boolean; message?: string; state?: any; redirectedFrom?: string }
 
@@ -74,7 +75,7 @@ export function Lobby() {
     <div style={{padding:20, color:'#eee', fontFamily:'system-ui, sans-serif', minHeight:'100vh', background:'#0f0f18'}}>
       <h1 style={{
         marginTop: 0,
-        marginBottom: 28,
+        marginBottom: 4,
         textAlign: 'center',
         fontSize: 40,
         fontWeight: 800,
@@ -85,6 +86,7 @@ export function Lobby() {
       }}>
         WorDuo
       </h1>
+      <div style={{textAlign:'center', marginBottom:24, fontSize:14}}><VersionBadge /></div>
 
       {/* Étape 1 : pseudo, tant qu'on n'a pas cliqué "Jouer" */}
       {!ready && (

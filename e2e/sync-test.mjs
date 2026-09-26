@@ -304,6 +304,22 @@ const scenarios = {
     else report.step('✔ reload après redémarrage : retour au lobby')
   },
 
+  // Nouvelle version déployée : même en pleine manche, un rechargement
+  // repart de zéro (la session sauvegardée par l'ancienne version est oubliée).
+  async newVersionResets({ giver, guesser, report }) {
+    await readWord(giver)
+    await expectSync(report, giver, guesser, { both: { status: 'running' } }, 'manche en cours')
+    await guesser.page.evaluate(() => localStorage.setItem('worduo:version', 'ancienne'))
+    await guesser.page.reload()
+    await guesser.page.getByRole('button', { name: 'Jouer' }).click()
+    await sleep(1500)
+    if (await guesser.page.locator('.appbar').isVisible()) report.issue('no-reset', guesser.tag, 'nouvelle version : la session précédente a été reprise')
+    else report.step('✔ nouvelle version : retour au lobby')
+    const underTitle = await guesser.page.locator('h1 + div .version-badge').isVisible()
+    if (underTitle) report.step('✔ version affichée sous le titre du lobby')
+    else report.issue('version', guesser.tag, 'version absente sous le titre du lobby')
+  },
+
   // Le meneur recharge la page en pleine manche : la manche en cours doit
   // être conservée (même mot, mêmes propositions).
   async giverReload({ giver, guesser, report }) {

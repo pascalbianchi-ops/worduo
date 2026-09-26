@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 // Le site (GitHub Pages) et le serveur (Render) se déploient séparément :
 // on affiche les deux versions pour savoir d'un coup d'œil lequel est à jour.
 // Numéro à changer dans server/version.json à chaque redéploiement.
-export function VersionBadge({ floating = false }: { floating?: boolean }) {
+export function VersionBadge() {
     const [server, setServer] = useState<string | null>(null)
 
     useEffect(() => {
@@ -24,12 +24,11 @@ export function VersionBadge({ floating = false }: { floating?: boolean }) {
             className="version-badge"
             title={mismatch ? 'Le site et le serveur ne sont pas à la même version' : undefined}
             style={{
-                fontSize: 11,
+                fontSize: '0.8em',
                 fontWeight: 600,
-                opacity: .75,
-                color: mismatch ? '#FBBF24' : 'inherit',
+                opacity: .8,
+                color: mismatch ? '#FBBF24' : '#cbd5e1',
                 whiteSpace: 'nowrap',
-                ...(floating ? { position: 'fixed', top: 8, right: 12, zIndex: 50, color: mismatch ? '#FBBF24' : '#cbd5e1' } : {}),
             }}
         >
             v{__APP_VERSION__} · serveur {serverLabel}
