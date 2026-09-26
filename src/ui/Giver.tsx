@@ -163,7 +163,7 @@ export function Giver() {
             setSendingHint(false)
             if (res?.ok) {
                 setHintHistory(prev => [...prev, hint.trim()])
-                setHint('')
+                setHint(cur => (cur === hint ? '' : cur)) // ne pas effacer ce qui a été tapé entre-temps
                 setHintSentOk(true)
                 setState(prev => ({ ...prev, error: null }))
                 setTimeout(() => setHintSentOk(false), 1500)

@@ -47,7 +47,7 @@ export function Guesser() {
             clearTimeout(timeout)
             setSending(false)
             if (res?.ok) {
-                setGuess('')
+                setGuess(cur => (cur === guess ? '' : cur)) // ne pas effacer ce qui a été tapé entre-temps
                 setSentOk(true)
                 setState(prev => ({ ...prev, error: null }))
                 setTimeout(() => setSentOk(false), 1500)

@@ -302,6 +302,13 @@ const scenarios = {
     guesser.proxy.setLatency(300, 400)
     const word = await readWord(giver)
     await sendHint(giver, 'lent 1')
+    // Le meneur tape déjà l'indice suivant pendant que le premier est en vol :
+    // l'accusé de réception du premier ne doit pas effacer sa saisie.
+    const hintInput = giver.page.getByPlaceholder('Écrire un indice percutant...')
+    await hintInput.fill('lent 2')
+    await giver.page.getByRole('button', { name: 'Envoi…' }).waitFor({ state: 'detached', timeout: 10000 }).catch(() => { })
+    const kept = await hintInput.inputValue()
+    if (kept !== 'lent 2') report.issue('lost-input', 'Alice/giver', `saisie "lent 2" effacée par l'accusé du 1er indice (reste "${kept}")`)
     await expectSync(report, giver, guesser, { guesser: { hint: 'lent 1' } }, '1er indice sous latence')
     await sendHint(giver, 'lent 2')
     await expectSync(report, giver, guesser, { guesser: { hint: 'lent 2' } }, 'indices sous latence')
