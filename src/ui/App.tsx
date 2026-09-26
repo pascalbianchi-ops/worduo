@@ -4,18 +4,19 @@ import { Giver } from "./Giver";
 import { Guesser } from "./Guesser";
 import HomeScreen from "../Pages/HomeScreen";
 import { useGame } from "../state/GameContext";
+import { VersionBadge } from "./VersionBadge";
 
 export function App() {
     const { state } = useGame();
     const [showHome, setShowHome] = useState(true);
 
-    // 1) Écran d'accueil d'abord
-    if (showHome) return <HomeScreen onStart={() => setShowHome(false)} />;
+    // 1) Ã‰cran d'accueil d'abord
+    if (showHome) return <><HomeScreen onStart={() => setShowHome(false)} /><VersionBadge floating /></>;
 
     // 2) Puis le Lobby tant que non rejoint
-    if (!state.role || !state.roomId) return <Lobby />;
+    if (!state.role || !state.roomId) return <><Lobby /><VersionBadge floating /></>;
 
-    // 3) Écran de jeu
+    // 3) Ã‰cran de jeu
     return state.role === "giver" ? <Giver /> : <Guesser />;
 }
 

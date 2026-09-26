@@ -451,3 +451,8 @@ a {
         transform: translateX(4px)
     }
 }
+
+/* La barre du haut passe sur deux lignes sur mobile plutôt que de déborder */
+.appbar-inner {
+    flex-wrap: wrap;
+}

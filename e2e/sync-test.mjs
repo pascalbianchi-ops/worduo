@@ -271,6 +271,39 @@ const scenarios = {
     else report.step('✔ session oubliée après "Terminer"')
   },
 
+  // Le devineur quitte en cours de partie, retrouve le meneur qui l'attend
+  // dans la liste des salons et le rejoint ; puis, après un redémarrage du
+  // serveur (veille Render), un reload ne doit pas le coincer dans un salon vide.
+  async quitRejoinAndStaleSession({ giver, guesser, report, restartServer }) {
+    const word = await readWord(giver)
+    const badge = await guesser.page.locator('.version-badge').first().textContent()
+    if (!/^v\d[\d.]* · serveur v\d/.test(badge.trim())) report.issue('version', guesser.tag, `badge de version inattendu : "${badge}"`)
+    else report.step(`✔ version affichée (${badge.trim()})`)
+
+    await guesser.page.getByRole('button', { name: 'Quitter' }).click()
+    await guesser.page.getByPlaceholder('Ton pseudo…').fill(guesser.name)
+    await guesser.page.getByRole('button', { name: 'Jouer' }).click()
+    const listed = await guesser.page.getByText(/attend un devineur/).filter({ hasText: giver.name }).first()
+      .waitFor({ timeout: 8000 }).then(() => true, () => false)
+    if (!listed) { report.issue('not-listed', guesser.tag, 'le salon du meneur en attente n’apparaît pas dans la liste'); return }
+    report.step('✔ salon du meneur visible dans la liste')
+    await guesser.page.locator('li', { hasText: giver.name }).getByRole('button', { name: 'Rejoindre en Devineur' }).click()
+    await guesser.page.locator('.appbar').waitFor({ timeout: 8000 })
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouée après avoir rejoint depuis la liste')
+
+    // Le meneur est parti et le serveur a redémarré : le salon renaît vide.
+    await giver.page.close()
+    report.expectNetErrors = true
+    await restartServer()
+    await guesser.page.reload()
+    await guesser.page.getByRole('button', { name: 'Jouer' }).click()
+    await sleep(2000)
+    report.expectNetErrors = false
+    if (await guesser.page.locator('.appbar').isVisible()) report.issue('stale-session', guesser.tag, 'reload après redémarrage : coincé dans un salon vide')
+    else report.step('✔ reload après redémarrage : retour au lobby')
+  },
+
   // Le meneur recharge la page en pleine manche : la manche en cours doit
   // être conservée (même mot, mêmes propositions).
   async giverReload({ giver, guesser, report }) {

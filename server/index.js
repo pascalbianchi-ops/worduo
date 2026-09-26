@@ -18,6 +18,8 @@ const frenchWords = require('an-array-of-french-words')
 // noms communs avec une liste de fréquence d'usage. Utilisée en priorité
 // pour proposer des mots faciles à faire deviner.
 const commonWords = require('./mots-courants.json')
+// Version affichée dans l'app (à incrémenter à chaque redéploiement)
+const APP_VERSION = require('./version.json').version
 
 const app = express()
 app.use(cors())
@@ -226,7 +228,7 @@ function findRoleHolder(roomId, role) {
 }
 
 // ================== API ==================
-app.get('/api/health', (req, res) => res.json({ ok: true }))
+app.get('/api/health', (req, res) => res.json({ ok: true, version: APP_VERSION }))
 // Render vérifie par défaut un chemin /health (configurable dans les Settings
 // du service). On l'expose aussi pour ne pas dépendre de ce réglage externe.
 app.get('/health', (req, res) => res.json({ ok: true }))

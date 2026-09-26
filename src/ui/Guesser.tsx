@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useGame } from '../state/GameContext'
 import { EndActions } from './EndActions'
+import { VersionBadge } from './VersionBadge'
 
 function Confetti() {
     const pieces = useMemo(() => {
@@ -20,7 +21,7 @@ function Confetti() {
 }
 
 export function Guesser() {
-    const { state, socket, setState, ensureConnected, isConnected } = useGame()
+    const { state, socket, setState, ensureConnected, isConnected, leaveGame } = useGame()
     const [guess, setGuess] = useState('')
     const [sending, setSending] = useState(false)
     const [sentOk, setSentOk] = useState(false)
@@ -66,7 +67,7 @@ export function Guesser() {
         <>
             <div className="appbar">
                 <div className="appbar-inner">
-                    <div className="brand"><div className="logo" />WorDuo</div>
+                    <div className="brand"><div className="logo" />WorDuo <VersionBadge /></div>
                     <div className="badge">Room: {state.roomId ?? '—'}</div>
                     <div className={`pill ${ended ? (isWin ? 'ok' : 'end') : state.status === 'running' ? 'run' : 'ok'}`}>
                         Statut : {state.status}
@@ -74,6 +75,7 @@ export function Guesser() {
                     <div className={`pill ${isConnected ? 'ok' : 'end'}`}>
                         {isConnected ? '🟢 Connecté' : '🔴 Déconnecté'}
                     </div>
+                    <button className="btn btn-ghost" onClick={leaveGame}>Quitter</button>
                 </div>
             </div>
 

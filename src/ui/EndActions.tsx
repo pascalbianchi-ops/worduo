@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { useGame, defaultState } from '../state/GameContext'
+import { useGame } from '../state/GameContext'
 
 // Boutons de fin de manche, communs au meneur et au devineur :
 // "Rejouer" relance une manche dans le même salon, "Terminer" ramène au lobby.
 export function EndActions() {
-    const { state, socket, setState, ensureConnected, forgetSession } = useGame()
+    const { state, socket, setState, ensureConnected, leaveGame } = useGame()
     const [busy, setBusy] = useState(false)
 
     const replay = async () => {
@@ -23,12 +23,6 @@ export function EndActions() {
         })
     }
 
-    const finish = () => {
-        socket.emit('game:leave')
-        forgetSession()
-        setState(prev => ({ ...defaultState, pseudo: prev.pseudo }))
-    }
-
     const partnerLeft = typeof state.players === 'number' && state.players < 2
 
     return (
@@ -40,7 +34,7 @@ export function EndActions() {
                 <button className="btn btn-primary" onClick={replay} disabled={busy}>
                     {busy ? 'Relance…' : 'Rejouer'}
                 </button>
-                <button className="btn btn-ghost" onClick={finish}>Terminer</button>
+                <button className="btn btn-ghost" onClick={leaveGame}>Terminer</button>
             </div>
         </>
     )

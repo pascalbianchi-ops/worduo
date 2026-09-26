@@ -96,8 +96,8 @@ type Ctx = {
   ensureConnected: () => Promise<void>
   /** À appeler juste après un game:join réussi, pour permettre la reconnexion auto */
   rememberSession: (s: SavedSession) => void
-  /** À appeler pour quitter définitivement (bouton "Quitter", fin de partie voulue) */
-  forgetSession: () => void
+  /** Quitte le salon et revient au lobby (boutons "Quitter" / "Terminer") */
+  leaveGame: () => void
 }
 
 const GameCtx = createContext<Ctx | null>(null)
@@ -112,6 +112,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // Vrai tant que le socket ne s'est jamais connecté depuis le chargement de
   // la page : distingue un rechargement d'une simple reconnexion réseau.
   const firstConnect = useRef(true)
+
+  const leaveGame = useMemo(() => () => {
+    socket.emit('game:leave')
+    clearSession()
+    setState(prev => ({ ...defaultState, pseudo: prev.pseudo }))
+  }, [socket])
 
   // ————————— Connexion / Reconnexion —————————
   useEffect(() => {
@@ -138,12 +144,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (saved && mounted.current) {
         socket.emit('game:join', { ...saved, playerId: getPlayerId() }, (res: any) => {
           if (!mounted.current) return
-          if (res?.ok && isReload && res.state?.status === 'ended') {
-            // Page rechargée alors que la partie était déjà finie : rien à
+          if (res?.ok && isReload && res.state?.status !== 'running') {
+            // Page rechargée sans manche en cours (partie finie, ou salon
+            // recréé vide après un redémarrage du serveur) : rien à
             // reprendre, on quitte le salon et on repart du lobby.
-            socket.emit('game:leave')
-            clearSession()
-            setState(prev => ({ ...defaultState, pseudo: prev.pseudo }))
+            leaveGame()
           } else if (res?.ok) {
             setState(prev => ({ ...prev, ...res.state, roomId: saved.roomId, role: saved.role, pseudo: saved.pseudo }))
           } else {
@@ -300,7 +305,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     <GameCtx.Provider value={{
       state, setState, socket, isConnected, ensureConnected,
       rememberSession: saveSession,
-      forgetSession: clearSession,
+      leaveGame,
     }}>
       {children}
     </GameCtx.Provider>
