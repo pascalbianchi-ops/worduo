@@ -471,7 +471,9 @@ const distDir = path.join(__dirname, '..', 'dist')
 app.use(express.static(distDir))
 
 // ================== Catch-all SPA ==================
-app.get('/*splat', (req, res) => {
+// Regex plutôt que '*' (Express 4) ou '/*splat' (Express 5) : compatible avec
+// les deux, et server/package.json installe Express 4.
+app.get(/.*/, (req, res) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
     return res.status(404).end()
   }
