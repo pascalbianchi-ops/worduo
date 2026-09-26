@@ -328,6 +328,22 @@ const scenarios = {
     giver.proxy.setLatency(0); guesser.proxy.setLatency(0)
   },
 
+  // Course déterministe : la réponse du devineur (réseau lent) arrive au
+  // serveur APRÈS que le meneur a changé de mot. Elle visait l'ancien mot et
+  // ne doit donc pas être comptée comme tentative sur le nouveau.
+  async staleGuessAfterNewWord({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    guesser.proxy.setLatency(1500)
+    await sendGuess(guesser, word)
+    await sleep(200)
+    await giver.page.getByRole('button', { name: 'Changer de mot' }).click()
+    await sleep(4000)
+    guesser.proxy.setLatency(0)
+    const newWord = (await snapshot(giver)).word
+    if (newWord === word) report.step('(nouveau mot identique par hasard)')
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null } }, 'réponse périmée ignorée')
+  },
+
   // Rafale : plusieurs réponses envoyées très vite (double Entrée).
   async rapidGuesses({ giver, guesser, report }) {
     guesser.proxy.setLatency(200, 100)

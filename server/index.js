@@ -73,7 +73,8 @@ function shuffleSample(arr, count) {
  *     guesses: string[],
  *     outcome: 'win' | 'lose' | null,
  *     revealWord: string | null,
- *     attempts: number
+ *     attempts: number,
+ *     round: number   // incrémenté à chaque game:start
  *   }
  * }
  */
@@ -93,6 +94,7 @@ function freshGame() {
     outcome: null,
     revealWord: null,
     attempts: 0,
+    round: 0,
   }
 }
 
@@ -135,6 +137,7 @@ function publicState(r, forSocketId) {
     // le mot n'est révélé au devineur que si la partie est terminée
     revealWord: r.game.status === 'ended' ? r.game.revealWord : null,
     attempts: r.game.attempts,
+    round: r.game.round,
     players: r.players,
   }
 }
@@ -337,6 +340,7 @@ io.on('connection', (socket) => {
         outcome: null,
         revealWord: null,
         attempts: 0,
+        round: (r.game.round || 0) + 1,
       }
 
       broadcastState(io, r)
@@ -376,6 +380,12 @@ io.on('connection', (socket) => {
       const r = rooms.get(info.roomId)
       if (!r || info.role !== 'guesser') return cb?.({ ok: false, message: 'Seul le devineur peut proposer un mot.' })
       if (r.game.status !== 'running') return cb?.({ ok: false, message: 'Aucune manche en cours.' })
+
+      // Une proposition émise pendant la manche précédente (réseau lent, le
+      // meneur a changé de mot entre-temps) ne doit pas compter sur la nouvelle.
+      if (payload?.round != null && payload.round !== r.game.round) {
+        return cb?.({ ok: false, stale: true, message: 'Le meneur a changé de mot : ta proposition n’a pas été comptée.' })
+      }
 
       const guess = String(payload?.guess || '').trim().toUpperCase()
       if (!guess) return cb?.({ ok: false, message: 'Proposition vide.' })

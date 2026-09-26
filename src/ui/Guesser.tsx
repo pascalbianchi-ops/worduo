@@ -43,7 +43,7 @@ export function Guesser() {
             setState(prev => ({ ...prev, error: "Pas de réponse du serveur, réessaie." }))
         }, 5000)
 
-        socket.emit('game:guess', { roomId: state.roomId, guess }, (res: any) => {
+        socket.emit('game:guess', { roomId: state.roomId, guess, round: state.round }, (res: any) => {
             clearTimeout(timeout)
             setSending(false)
             if (res?.ok) {

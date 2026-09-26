@@ -18,6 +18,8 @@ type GameState = {
   revealWord: string | null
   attempts: number
   maxAttempts: number
+  /** Numéro de manche côté serveur (renvoyé avec chaque proposition) */
+  round: number | null
 }
 
 const defaultState: GameState = {
@@ -34,6 +36,7 @@ const defaultState: GameState = {
   revealWord: null,
   attempts: 0,
   maxAttempts: 3,
+  round: null,
 }
 
 // Clé localStorage pour retenter automatiquement de rejoindre la même
