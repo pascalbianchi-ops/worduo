@@ -166,6 +166,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
         if (typeof (s as any).attempts === 'number') next.attempts = (s as any).attempts as number
         if (typeof (s as any).maxAttempts === 'number') next.maxAttempts = (s as any).maxAttempts as number
+        // Le serveur n'émet pas d'événement 'game:guess' : la dernière
+        // proposition se déduit de la liste complète envoyée dans l'état.
+        if (Array.isArray(s.guesses)) next.lastGuess = s.guesses.length ? s.guesses[s.guesses.length - 1] : null
 
         if (s.status === 'ended') {
           // Le serveur envoie directement outcome et revealWord (voir
