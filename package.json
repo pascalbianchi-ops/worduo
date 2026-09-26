@@ -6,7 +6,8 @@
         "dev": "vite",
         "build": "vite build && cd server && npm ci",
         "preview": "vite preview",
-        "start": "node server/index.js"
+        "start": "node server/index.js",
+        "test:e2e": "vite build && node e2e/sync-test.mjs"
     },
     "engines": {
         "node": ">=20"

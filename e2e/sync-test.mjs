@@ -11,7 +11,7 @@
 //   - désynchronisations : les deux joueurs ne voient pas le même état
 //     (statut, indice, propositions, mot révélé) après un délai de grâce
 //
-// Usage : npm run build:front && node e2e/sync-test.mjs [nomDuScenario...]
+// Usage : npm run test:e2e   (ou, après un build : node e2e/sync-test.mjs [nomDuScenario...])
 //   HEADFUL=1 pour voir les navigateurs.
 import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
