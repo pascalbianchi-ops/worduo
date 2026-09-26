@@ -458,6 +458,20 @@ io.on('connection', (socket) => {
     }
   })
 
+  // Le joueur quitte volontairement le salon (retour au lobby)
+  socket.on('game:leave', (payload, cb) => {
+    try {
+      const info = socketInfo.get(socket.id)
+      const r = info ? rooms.get(info.roomId) : null
+      leaveCurrentRoom(socket)
+      if (r) broadcastState(io, r)
+      cb?.({ ok: true })
+    } catch (e) {
+      console.error('[LEAVE] error', e)
+      cb?.({ ok: false, message: 'Erreur serveur.' })
+    }
+  })
+
   socket.on('disconnect', (reason) => {
     console.log('[SOCKET] client disconnected', socket.id, 'reason:', reason)
     const info = socketInfo.get(socket.id)

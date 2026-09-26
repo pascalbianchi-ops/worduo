@@ -107,6 +107,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // Singleton socket (recréé si lib/socket change d’URL)
   const socket = useMemo(() => getSocket(), [])
   const mounted = useRef(true)
+  // Vrai tant que le socket ne s'est jamais connecté depuis le chargement de
+  // la page : distingue un rechargement d'une simple reconnexion réseau.
+  const firstConnect = useRef(true)
 
   // ————————— Connexion / Reconnexion —————————
   useEffect(() => {
@@ -128,10 +131,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       // room/rôle automatiquement plutôt que de laisser l'utilisateur au
       // lobby vide.
       const saved = loadSession()
+      const isReload = firstConnect.current
+      firstConnect.current = false
       if (saved && mounted.current) {
         socket.emit('game:join', { ...saved, playerId: getPlayerId() }, (res: any) => {
           if (!mounted.current) return
-          if (res?.ok) {
+          if (res?.ok && isReload && res.state?.status === 'ended') {
+            // Page rechargée alors que la partie était déjà finie : rien à
+            // reprendre, on quitte le salon et on repart du lobby.
+            socket.emit('game:leave')
+            clearSession()
+            setState(prev => ({ ...defaultState, pseudo: prev.pseudo }))
+          } else if (res?.ok) {
             setState(prev => ({ ...prev, ...res.state, roomId: saved.roomId, role: saved.role, pseudo: saved.pseudo }))
           } else {
             // Le rôle est pris par un autre joueur : on abandonne la session
@@ -188,6 +199,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const onState = (s: Partial<GameState>) =>
       setState(prev => {
+        // Hors salon (retour au lobby), un état encore en vol ne doit pas
+        // ramener le joueur dans la partie qu'il vient de quitter.
+        if (!prev.roomId) return prev
         const next: GameState = { ...prev, ...s }
 
         if (typeof (s as any).attempts === 'number') next.attempts = (s as any).attempts as number

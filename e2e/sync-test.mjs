@@ -217,6 +217,21 @@ const scenarios = {
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'gagné après reload')
   },
 
+  // Le devineur recharge la page après la fin de la manche : rien à
+  // reprendre, il doit repartir du lobby au lieu de revoir la partie finie.
+  async reloadAfterEnd({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'manche terminée')
+    await guesser.page.reload()
+    await guesser.page.getByRole('button', { name: 'Jouer' }).click()
+    const backInLobby = await guesser.page.getByPlaceholder(/Ton pseudo…|Nom du salon…/).first()
+      .waitFor({ timeout: 10000 }).then(() => true, () => false)
+    const inGame = await guesser.page.locator('.appbar').isVisible()
+    if (backInLobby && !inGame) report.step('✔ devineur renvoyé au lobby après reload')
+    else report.issue('no-reset', guesser.tag, 'après reload d’une manche terminée, le devineur voit encore la partie')
+  },
+
   // Le meneur recharge la page en pleine manche : la manche en cours doit
   // être conservée (même mot, mêmes propositions).
   async giverReload({ giver, guesser, report }) {
