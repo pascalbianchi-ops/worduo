@@ -126,6 +126,9 @@ function publicState(r, forSocketId) {
     role,
     pseudo: info?.pseudo,
     status: r.game.status,
+    // Le meneur doit retrouver son mot après une reconnexion ; sans ça son
+    // client croit n'avoir aucun mot et relance une manche, effaçant la partie.
+    word: role === 'giver' ? r.game.word : null,
     hint: r.game.hint,
     guesses: r.game.guesses,
     outcome: r.game.outcome,
