@@ -35,6 +35,10 @@ jobs:
       - name: Build
         # Assure-toi que "npm run build" génère bien dans ./dist
         run: npm run build
+        env:
+          # Le front est servi par GitHub Pages mais le backend est sur Render :
+          # sans cette URL, socket et API viseraient l'origine github.io.
+          VITE_SOCKET_URL: https://worduo.onrender.com
 
       - name: SPA fallback (copy index -> 404)
         # Fallback SPA pour routes côté client
