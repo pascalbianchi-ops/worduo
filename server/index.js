@@ -56,6 +56,10 @@ function shuffleSample(arr, count) {
   return copy.slice(0, count)
 }
 
+// Mots tirés par le serveur pour "Rejouer" : mêmes critères que la banque
+// chargée par le meneur (voir src/ui/Giver.tsx).
+const REPLAY_WORDS = filterWords({ minLen: 4, maxLen: 10, allowHyphen: false, onlyInfinitive: false, mode: 'core' })
+
 // ================== In-memory ==================
 /**
  * Room shape:
@@ -374,6 +378,34 @@ io.on('connection', (socket) => {
       cb?.({ ok: true })
     } catch (e) {
       console.error('[START] error', e)
+      cb?.({ ok: false, message: 'Erreur serveur.' })
+    }
+  })
+
+  // "Rejouer" en fin de manche, par l'un ou l'autre joueur : le serveur tire
+  // lui-même le mot, puisque le devineur n'a pas de banque de mots.
+  socket.on('game:restart', (payload, cb) => {
+    try {
+      const info = socketInfo.get(socket.id)
+      if (!info) return cb?.({ ok: false, message: 'Non connecté à une room.' })
+      const r = rooms.get(info.roomId)
+      if (!r) return cb?.({ ok: false, message: 'Salon introuvable.' })
+      // Les deux joueurs peuvent cliquer presque en même temps : seul le
+      // premier clic relance, le second trouve la manche déjà repartie.
+      if (r.game.status !== 'ended') return cb?.({ ok: true })
+
+      const word = REPLAY_WORDS[Math.floor(Math.random() * REPLAY_WORDS.length)]
+      r.game = {
+        ...freshGame(),
+        status: 'running',
+        word: word.toUpperCase(),
+        round: (r.game.round || 0) + 1,
+      }
+
+      broadcastState(io, r)
+      cb?.({ ok: true })
+    } catch (e) {
+      console.error('[RESTART] error', e)
       cb?.({ ok: false, message: 'Erreur serveur.' })
     }
   })

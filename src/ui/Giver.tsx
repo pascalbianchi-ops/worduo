@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useGame } from '../state/GameContext'
 import { api } from '../lib/api'
+import { EndActions } from './EndActions'
 
 
 function Confetti() {
@@ -112,6 +113,12 @@ export function Giver() {
         start()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadingWords, bank, state.word])
+
+    // Nouvelle manche relancée via "Rejouer" (éventuellement par le devineur) :
+    // l'historique des indices de la manche précédente n'a plus lieu d'être.
+    useEffect(() => {
+        setHintHistory([])
+    }, [state.round])
 
     const send = async () => {
         if (!hint.trim() || sendingHint) return
@@ -250,18 +257,14 @@ export function Giver() {
                             <Confetti />
                             <h3 className="boom">🎉 Bravo !</h3>
                             <div className="word">Le mot était <b>{state.revealWord ?? '—'}</b></div>
-                            <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
-                                <button className="btn btn-primary" onClick={start}>Nouvelle manche</button>
-                            </div>
+                            <EndActions />
                         </div>
                     )}
                     {isLose && (
                         <div className="panel-lose pop">
                             <h3 className="boom">💥 C’est raté…</h3>
                             <div className="word">Le mot était <b>{state.revealWord ?? '—'}</b></div>
-                            <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
-                                <button className="btn btn-primary" onClick={start}>Rejouer</button>
-                            </div>
+                            <EndActions />
                         </div>
                     )}
                 </div>

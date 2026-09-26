@@ -20,9 +20,11 @@ type GameState = {
   maxAttempts: number
   /** Numéro de manche côté serveur (renvoyé avec chaque proposition) */
   round: number | null
+  /** Nombre de joueurs présents dans le salon (fourni par le serveur) */
+  players?: number
 }
 
-const defaultState: GameState = {
+export const defaultState: GameState = {
   roomId: null,
   role: null,
   pseudo: null,

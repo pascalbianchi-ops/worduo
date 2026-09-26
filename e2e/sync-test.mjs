@@ -191,9 +191,9 @@ const scenarios = {
     await expectSync(report, giver, guesser, { both: { guesses: ['XYZABC'], status: 'running' } }, 'mauvaise réponse')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'bonne réponse → gagné')
-    await giver.page.getByRole('button', { name: 'Nouvelle manche' }).click()
-    const word2 = await readWord(giver)
+    await giver.page.getByRole('button', { name: 'Rejouer' }).click()
     await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null }, guesser: { hint: '—' } }, 'nouvelle manche')
+    const word2 = await readWord(giver)
     // 5 mauvaises réponses → perdu
     const faux = ['FAUX1', 'FAUX2', 'FAUX3', 'FAUX4']
     for (let i = 0; i < faux.length; i++) {
@@ -230,6 +230,45 @@ const scenarios = {
     const inGame = await guesser.page.locator('.appbar').isVisible()
     if (backInLobby && !inGame) report.step('✔ devineur renvoyé au lobby après reload')
     else report.issue('no-reset', guesser.tag, 'après reload d’une manche terminée, le devineur voit encore la partie')
+  },
+
+  // Fin de manche : le devineur relance avec "Rejouer", puis chacun quitte
+  // avec "Terminer" et revient au lobby.
+  async replayAndFinish({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendHint(giver, 'indice manche 1')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'manche 1 gagnée')
+    await guesser.page.getByRole('button', { name: 'Rejouer' }).click()
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null }, guesser: { hint: '—' } }, 'manche relancée par le devineur')
+    const word2 = await readWord(giver)
+    const hints = await giver.page.getByText('indice manche 1').count()
+    if (hints) report.issue('stale-hints', giver.tag, 'les indices de la manche précédente sont encore affichés')
+    await sendHint(giver, 'indice manche 2')
+    await sendGuess(guesser, word2)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word2 }, guesser: { hint: 'indice manche 2' } }, 'manche 2 gagnée')
+
+    await giver.page.getByRole('button', { name: 'Terminer' }).click()
+    const giverOut = await giver.page.getByPlaceholder(/Ton pseudo…|Nom du salon…/).first()
+      .waitFor({ timeout: 5000 }).then(() => true, () => false)
+    if (giverOut) report.step('✔ meneur revenu au lobby')
+    else report.issue('no-finish', giver.tag, '"Terminer" n’a pas ramené le meneur au lobby')
+    const noticed = await guesser.page.getByText('Ton partenaire a quitté le salon.')
+      .waitFor({ timeout: 5000 }).then(() => true, () => false)
+    if (noticed) report.step('✔ devineur prévenu du départ du meneur')
+    else report.issue('no-notice', guesser.tag, 'le devineur n’est pas prévenu du départ du meneur')
+    await guesser.page.getByRole('button', { name: 'Terminer' }).click()
+    const guesserOut = await guesser.page.getByPlaceholder(/Ton pseudo…|Nom du salon…/).first()
+      .waitFor({ timeout: 5000 }).then(() => true, () => false)
+    if (guesserOut) report.step('✔ devineur revenu au lobby')
+    else report.issue('no-finish', guesser.tag, '"Terminer" n’a pas ramené le devineur au lobby')
+
+    // Un rechargement après "Terminer" ne doit pas ramener dans la partie.
+    await guesser.page.reload()
+    await guesser.page.getByRole('button', { name: 'Jouer' }).click()
+    await sleep(1500)
+    if (await guesser.page.locator('.appbar').isVisible()) report.issue('session-kept', guesser.tag, 'reload après "Terminer" ramène dans la partie')
+    else report.step('✔ session oubliée après "Terminer"')
   },
 
   // Le meneur recharge la page en pleine manche : la manche en cours doit

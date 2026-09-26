@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useGame } from '../state/GameContext'
+import { EndActions } from './EndActions'
 
 function Confetti() {
     const pieces = useMemo(() => {
@@ -61,12 +62,6 @@ export function Guesser() {
     const isWin = state.outcome === 'win'
     const isLose = state.outcome === 'lose'
 
-    // Le devineur ne peut pas démarrer une nouvelle manche : seul le meneur
-    // choisit le mot suivant. On se contente d'informer qu'on attend le meneur.
-    const requestReplay = () => {
-        setState(prev => ({ ...prev, lastGuess: null }))
-    }
-
     return (
         <>
             <div className="appbar">
@@ -125,18 +120,14 @@ export function Guesser() {
                             <Confetti />
                             <h3 className="boom">🎉 Gagné !</h3>
                             <div className="word">Le mot était <b>{state.revealWord ?? '—'}</b></div>
-                            <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
-                                <div style={{ opacity: .85 }}>En attente d'une nouvelle manche du meneur…</div>
-                            </div>
+                            <EndActions />
                         </div>
                     )}
                     {isLose && (
                         <div className="panel-lose pop">
                             <h3 className="boom">💥 Perdu !</h3>
                             <div className="word">Le mot était <b>{state.revealWord ?? '—'}</b></div>
-                            <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
-                                <div style={{ opacity: .85 }}>En attente d'une nouvelle manche du meneur…</div>
-                            </div>
+                            <EndActions />
                         </div>
                     )}
                 </div>
