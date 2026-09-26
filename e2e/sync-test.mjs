@@ -26,18 +26,17 @@ const SYNC_TIMEOUT = Number(process.env.SYNC_TIMEOUT || 8000)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ————————————————— Serveur —————————————————
-function startServer() {
+function startServer(logs) {
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ['server/index.js'], {
       cwd: ROOT,
       env: { ...process.env, PORT: String(SERVER_PORT) },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const logs = []
     const onData = (buf) => {
       const text = buf.toString()
       logs.push(...text.split(/\r?\n/).filter(Boolean))
-      if (text.includes('Server listening')) resolve({ proc, logs })
+      if (text.includes('Server listening')) resolve(proc)
     }
     proc.stdout.on('data', onData)
     proc.stderr.on('data', onData)
@@ -344,6 +343,63 @@ const scenarios = {
     await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null } }, 'réponse périmée ignorée')
   },
 
+  // Les deux joueurs perdent le réseau en même temps : la room tombe à 0
+  // joueur côté serveur. La manche doit survivre à leur retour.
+  async bothDrop({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendHint(giver, 'avant double coupure')
+    await sendGuess(guesser, 'RATE')
+    await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant double coupure')
+    report.expectNetErrors = true
+    giver.proxy.cut(3000)
+    guesser.proxy.cut(3500)
+    await sleep(6000)
+    report.expectNetErrors = false
+    await expectSync(report, giver, guesser, { both: { status: 'running', connected: true, guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'avant double coupure' } }, 'manche conservée après double coupure')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'gagné après double coupure')
+  },
+
+  // Redémarrage du serveur en pleine manche (état mémoire perdu). On ne peut
+  // pas retrouver la manche, mais les deux joueurs doivent se retrouver dans
+  // un état cohérent et pouvoir continuer à jouer.
+  async serverRestart({ giver, guesser, report, restartServer }) {
+    await readWord(giver)
+    await sendHint(giver, 'avant redémarrage')
+    await sendGuess(guesser, 'RATE')
+    await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant redémarrage')
+    report.expectNetErrors = true
+    await restartServer(1500)
+    await sleep(5000)
+    report.expectNetErrors = false
+    await expectSync(report, giver, guesser, { both: { connected: true, status: 'running' } }, 'reconnectés après redémarrage')
+    const word = await readWord(giver)
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouable après redémarrage')
+  },
+
+  // Un troisième joueur tente de prendre le rôle de devineur déjà occupé.
+  async intruder({ browser, giver, guesser, report }) {
+    await readWord(giver)
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    try {
+      await page.goto(guesser.baseUrl)
+      await page.getByRole('button', { name: 'Jouer' }).click()
+      await page.getByPlaceholder('Ton pseudo…').fill('Bob')
+      await page.getByRole('button', { name: 'Jouer' }).click()
+      await page.getByPlaceholder('Nom du salon…').fill(guesser.roomId)
+      await page.getByRole('button', { name: '🔍 Devineur' }).click()
+      const refused = await page.getByText('déjà pris').waitFor({ timeout: 5000 }).then(() => true, () => false)
+      if (!refused) report.issue('intruder', 'Mallory', 'le rôle déjà occupé n’a pas été refusé')
+      else report.step('✔ intrus refusé')
+    } finally {
+      await context.close()
+    }
+    await sendGuess(guesser, 'TOUJOURSLA')
+    await expectSync(report, giver, guesser, { both: { guesses: ['TOUJOURSLA'] } }, 'devineur légitime toujours en jeu')
+  },
+
   // Rafale : plusieurs réponses envoyées très vite (double Entrée).
   async rapidGuesses({ giver, guesser, report }) {
     guesser.proxy.setLatency(200, 100)
@@ -384,7 +440,17 @@ function makeReport(scenario) {
 async function main() {
   const only = process.argv.slice(2)
   const toRun = Object.keys(scenarios).filter((n) => !only.length || only.includes(n))
-  const { proc, logs } = await startServer()
+  const logs = []
+  let proc = await startServer(logs)
+  // Simule un redémarrage du serveur (réveil / redéploiement Render) : tout
+  // l'état en mémoire est perdu, les clients doivent se reconnecter.
+  const restartServer = async (downtimeMs = 1000) => {
+    const exited = new Promise((r) => proc.once('exit', r))
+    proc.kill()
+    await exited
+    await sleep(downtimeMs)
+    proc = await startServer(logs)
+  }
   const browser = await chromium.launch({ headless: !process.env.HEADFUL })
   const results = []
   try {
@@ -397,7 +463,7 @@ async function main() {
       try {
         giver = await openPlayer(browser, { name: 'Alice', role: 'giver', roomId, report })
         guesser = await openPlayer(browser, { name: 'Bob', role: 'guesser', roomId, report })
-        await scenarios[name]({ browser, giver, guesser, report })
+        await scenarios[name]({ browser, giver, guesser, report, restartServer })
       } catch (e) {
         report.issue('exception', name, e.message.split('\n')[0])
       } finally {
