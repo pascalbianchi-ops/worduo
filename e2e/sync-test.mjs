@@ -1,0 +1,409 @@
+// Test de bout en bout de la synchronisation Socket.IO entre deux joueurs.
+//
+// Lance le serveur Worduo en local (qui sert aussi le build Vite de dist/),
+// ouvre deux navigateurs headless (meneur + devineur), chacun derrière son
+// propre proxy réseau (e2e/net-proxy.mjs) pour pouvoir dégrader la connexion
+// d'un seul joueur, puis déroule plusieurs scénarios.
+//
+// Relevé pour chaque scénario :
+//   - erreurs console / exceptions JS / requêtes réseau échouées
+//   - déconnexions Socket.IO vues par le client
+//   - désynchronisations : les deux joueurs ne voient pas le même état
+//     (statut, indice, propositions, mot révélé) après un délai de grâce
+//
+// Usage : npm run build:front && node e2e/sync-test.mjs [nomDuScenario...]
+//   HEADFUL=1 pour voir les navigateurs.
+import { chromium } from 'playwright'
+import { spawn } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createProxy } from './net-proxy.mjs'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const SERVER_PORT = 3100 + Math.floor(Math.random() * 500)
+const SYNC_TIMEOUT = Number(process.env.SYNC_TIMEOUT || 8000)
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// ————————————————— Serveur —————————————————
+function startServer() {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(process.execPath, ['server/index.js'], {
+      cwd: ROOT,
+      env: { ...process.env, PORT: String(SERVER_PORT) },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const logs = []
+    const onData = (buf) => {
+      const text = buf.toString()
+      logs.push(...text.split(/\r?\n/).filter(Boolean))
+      if (text.includes('Server listening')) resolve({ proc, logs })
+    }
+    proc.stdout.on('data', onData)
+    proc.stderr.on('data', onData)
+    proc.on('exit', (code) => reject(new Error(`server exited early (${code})\n${logs.join('\n')}`)))
+  })
+}
+
+// ————————————————— Joueurs —————————————————
+async function openPlayer(browser, { name, role, roomId, report }) {
+  const proxy = createProxy({ targetPort: SERVER_PORT })
+  const port = await proxy.listen()
+  const baseUrl = `http://127.0.0.1:${port}`
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const tag = `${name}/${role}`
+
+  page.on('console', (msg) => {
+    const text = msg.text()
+    if (msg.type() === 'error') {
+      // Échecs de connexion WebSocket attendus pendant une coupure volontaire
+      if (!(report.expectNetErrors && text.includes('WebSocket connection'))) report.issue('console-error', tag, text)
+    }
+    if (text.includes('disconnected:')) report.event(tag, text)
+    if (text.includes('connected, id=')) report.event(tag, text)
+  })
+  page.on('pageerror', (err) => report.issue('page-error', tag, err.message))
+  page.on('requestfailed', (req) => {
+    // Les requêtes interrompues pendant une coupure volontaire sont attendues.
+    if (report.expectNetErrors) return
+    report.issue('request-failed', tag, `${req.method()} ${req.url()} → ${req.failure()?.errorText}`)
+  })
+  page.on('response', (res) => {
+    if (res.status() >= 400) report.issue('http-error', tag, `${res.status()} ${res.url()}`)
+  })
+
+  const player = { name, role, roomId, page, context, proxy, baseUrl, tag }
+  await page.goto(baseUrl)
+  await enterGame(player)
+  return player
+}
+
+async function enterGame(player) {
+  const { page } = player
+  // Écran d'accueil → Lobby (ou directement le jeu si la session est restaurée)
+  await page.getByRole('button', { name: 'Jouer' }).click()
+  const inGame = await page.locator('.appbar').first().isVisible({ timeout: 1500 }).catch(() => false)
+  if (inGame) return
+  await page.getByPlaceholder('Ton pseudo…').fill(player.name)
+  await page.getByRole('button', { name: 'Jouer' }).click()
+  await page.getByPlaceholder('Nom du salon…').fill(player.roomId)
+  await page.getByRole('button', { name: player.role === 'giver' ? '🧠 Meneur' : '🔍 Devineur' }).click()
+  await page.locator('.appbar').waitFor({ timeout: 10000 })
+}
+
+/** Photographie de ce que le joueur voit à l'écran. */
+async function snapshot(player) {
+  return player.page.evaluate(() => {
+    const txt = (el) => (el?.textContent || '').trim()
+    const pills = [...document.querySelectorAll('.appbar .pill')].map(txt)
+    const status = (pills.find((p) => p.startsWith('Statut')) || '').replace(/^Statut\s*:\s*/, '')
+    const connected = pills.some((p) => p.includes('Connecté') && !p.includes('Déconnecté'))
+    const subs = [...document.querySelectorAll('.card-sub')]
+    const hintEl = subs.find((s) => txt(s).startsWith('Dernier indice'))
+    const lastGuessEl = subs.find((s) => txt(s).startsWith('Dernière réponse'))
+    // Liste des propositions : côté devineur "Historique", côté meneur colonne de droite
+    let guesses = []
+    const guessHeader = subs.find((s) => ['Historique', 'Propositions du devineur'].includes(txt(s)))
+    const list = guessHeader?.parentElement?.querySelector('ul.list')
+    if (list) guesses = [...list.querySelectorAll('li')].map(txt).reverse()
+    const overlay = document.querySelector('.overlay')
+    const outcome = overlay ? (overlay.querySelector('.panel-win') ? 'win' : overlay.querySelector('.panel-lose') ? 'lose' : '?') : null
+    const reveal = overlay ? txt(overlay.querySelector('.word b')) : null
+    return {
+      status,
+      connected,
+      hint: hintEl ? txt(hintEl.querySelector('b')) : undefined,
+      lastGuess: lastGuessEl ? txt(lastGuessEl.querySelector('b')) : undefined,
+      word: txt(document.querySelector('.gradient-text')) || undefined,
+      guesses,
+      outcome,
+      reveal,
+    }
+  })
+}
+
+// ————————————————— Actions de jeu —————————————————
+async function sendHint(giver, hint) {
+  const input = giver.page.getByPlaceholder('Écrire un indice percutant...')
+  await input.fill(hint)
+  await input.press('Enter')
+}
+
+async function sendGuess(guesser, guess) {
+  const input = guesser.page.getByPlaceholder('Votre proposition...')
+  await input.fill(guess)
+  await input.press('Enter')
+}
+
+async function readWord(giver) {
+  await giver.page.waitForFunction(() => {
+    const t = document.querySelector('.gradient-text')?.textContent?.trim()
+    return t && t !== '—'
+  }, null, { timeout: 10000 })
+  return (await snapshot(giver)).word
+}
+
+// ————————————————— Vérification de synchro —————————————————
+/**
+ * Attend que les deux joueurs affichent un état cohérent et conforme à
+ * `expected` (clés partielles). Retourne false et consigne une
+ * désynchronisation si ça n'arrive pas avant SYNC_TIMEOUT.
+ */
+async function expectSync(report, giver, guesser, expected, label) {
+  const deadline = Date.now() + SYNC_TIMEOUT
+  let g, d, problems
+  while (true) {
+    ;[g, d] = await Promise.all([snapshot(giver), snapshot(guesser)])
+    problems = []
+    if (g.status !== d.status) problems.push(`statut ${g.status} ≠ ${d.status}`)
+    if (JSON.stringify(g.guesses) !== JSON.stringify(d.guesses)) problems.push(`propositions ${JSON.stringify(g.guesses)} ≠ ${JSON.stringify(d.guesses)}`)
+    if (g.outcome !== d.outcome) problems.push(`issue ${g.outcome} ≠ ${d.outcome}`)
+    if (g.reveal !== d.reveal) problems.push(`mot révélé ${g.reveal} ≠ ${d.reveal}`)
+    if (d.guesses.length && g.lastGuess !== d.guesses.at(-1)) problems.push(`meneur "dernière réponse" = ${g.lastGuess}, attendu ${d.guesses.at(-1)}`)
+    for (const [k, v] of Object.entries(expected.both || {})) {
+      if (JSON.stringify(g[k]) !== JSON.stringify(v)) problems.push(`meneur.${k} = ${JSON.stringify(g[k])}, attendu ${JSON.stringify(v)}`)
+      if (JSON.stringify(d[k]) !== JSON.stringify(v)) problems.push(`devineur.${k} = ${JSON.stringify(d[k])}, attendu ${JSON.stringify(v)}`)
+    }
+    for (const [k, v] of Object.entries(expected.giver || {})) {
+      if (JSON.stringify(g[k]) !== JSON.stringify(v)) problems.push(`meneur.${k} = ${JSON.stringify(g[k])}, attendu ${JSON.stringify(v)}`)
+    }
+    for (const [k, v] of Object.entries(expected.guesser || {})) {
+      if (JSON.stringify(d[k]) !== JSON.stringify(v)) problems.push(`devineur.${k} = ${JSON.stringify(d[k])}, attendu ${JSON.stringify(v)}`)
+    }
+    if (!problems.length) { report.step(`✔ ${label}`); return true }
+    if (Date.now() > deadline) break
+    await sleep(150)
+  }
+  report.issue('desync', label, problems.join(' | '), { giver: g, guesser: d })
+  return false
+}
+
+// ————————————————— Scénarios —————————————————
+const scenarios = {
+  // Partie complète sans perturbation : indice, mauvaise réponse, bonne
+  // réponse, puis nouvelle manche.
+  async fullGame({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [] } }, 'manche démarrée')
+    await sendHint(giver, 'premier indice')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'premier indice' } }, 'indice reçu')
+    await sendGuess(guesser, 'XYZABC')
+    await expectSync(report, giver, guesser, { both: { guesses: ['XYZABC'], status: 'running' } }, 'mauvaise réponse')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'bonne réponse → gagné')
+    await giver.page.getByRole('button', { name: 'Nouvelle manche' }).click()
+    const word2 = await readWord(giver)
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null }, guesser: { hint: '—' } }, 'nouvelle manche')
+    // 2 mauvaises réponses → perdu
+    await sendGuess(guesser, 'FAUX1')
+    await expectSync(report, giver, guesser, { both: { guesses: ['FAUX1'] } }, 'manche 2 : 1re réponse')
+    await sendGuess(guesser, 'FAUX2')
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'lose', reveal: word2 } }, 'manche 2 : perdu')
+  },
+
+  // Le devineur recharge la page en pleine manche puis revient.
+  async guesserReload({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendHint(giver, 'avant reload')
+    await sendGuess(guesser, 'RATE')
+    await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant reload')
+    await guesser.page.reload()
+    await enterGame(guesser)
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: ['RATE'] }, guesser: { hint: 'avant reload' }, giver: { word } }, 'devineur revenu après reload')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'gagné après reload')
+  },
+
+  // Le meneur recharge la page en pleine manche : la manche en cours doit
+  // être conservée (même mot, mêmes propositions).
+  async giverReload({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendHint(giver, 'indice meneur')
+    await sendGuess(guesser, 'RATE')
+    await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant reload meneur')
+    await giver.page.reload()
+    await enterGame(giver)
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'indice meneur' } }, 'meneur revenu, manche conservée')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'gagné après reload meneur')
+  },
+
+  // Le devineur ferme son onglet (déconnexion volontaire), puis rouvre le jeu.
+  async guesserLeavesAndReturns({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendHint(giver, 'indice')
+    await sendGuess(guesser, 'RATE')
+    await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant départ')
+    await guesser.page.close()
+    await sleep(1500)
+    // Nouvel onglet avec le même localStorage (même navigateur, onglet rouvert)
+    guesser.page = await guesser.context.newPage()
+    report.attach(guesser)
+    await guesser.page.goto(guesser.baseUrl)
+    await enterGame(guesser)
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: ['RATE'] }, guesser: { hint: 'indice' } }, 'devineur revenu dans un nouvel onglet')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win' } }, 'gagné après retour')
+  },
+
+  // Coupure réseau franche de 5 s côté devineur.
+  async networkCut({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendHint(giver, 'avant coupure')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'avant coupure' } }, 'indice avant coupure')
+    report.expectNetErrors = true
+    guesser.proxy.cut(5000)
+    await sleep(1000)
+    // Le meneur envoie un indice pendant la coupure : il doit arriver après.
+    await sendHint(giver, 'pendant coupure')
+    await sleep(6000)
+    report.expectNetErrors = false
+    await expectSync(report, giver, guesser, { both: { status: 'running', connected: true }, guesser: { hint: 'pendant coupure' } }, 'rattrapage après coupure')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win' } }, 'gagné après coupure')
+  },
+
+  // Changement de réseau : le client perd la connexion immédiatement mais le
+  // serveur garde l'ancien socket jusqu'au pingTimeout (~55 s).
+  async halfDeadConnection({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendHint(giver, 'avant bascule')
+    await sendGuess(guesser, 'RATE')
+    await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant bascule réseau')
+    report.expectNetErrors = true
+    guesser.proxy.halfDead()
+    await sleep(3000)
+    report.expectNetErrors = false
+    await sendHint(giver, 'après bascule')
+    await expectSync(report, giver, guesser, { both: { connected: true, guesses: ['RATE'] }, guesser: { hint: 'après bascule' } }, 'devineur resynchronisé après bascule')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win' } }, 'gagné après bascule')
+  },
+
+  // Même bascule côté meneur.
+  async giverHalfDead({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    await sendGuess(guesser, 'RATE')
+    await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant bascule meneur')
+    report.expectNetErrors = true
+    giver.proxy.halfDead()
+    await sleep(3000)
+    report.expectNetErrors = false
+    await sendHint(giver, 'meneur revenu')
+    await expectSync(report, giver, guesser, { both: { connected: true, guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'meneur revenu' } }, 'meneur resynchronisé après bascule')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win' } }, 'gagné après bascule meneur')
+  },
+
+  // Latence élevée et irrégulière sur les deux joueurs, actions enchaînées vite.
+  async highLatency({ giver, guesser, report }) {
+    giver.proxy.setLatency(300, 400)
+    guesser.proxy.setLatency(300, 400)
+    const word = await readWord(giver)
+    await sendHint(giver, 'lent 1')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'lent 1' } }, '1er indice sous latence')
+    await sendHint(giver, 'lent 2')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'lent 2' } }, 'indices sous latence')
+    await sendGuess(guesser, 'LENT')
+    await expectSync(report, giver, guesser, { both: { guesses: ['LENT'] } }, 'réponse sous latence')
+    // Le meneur change de mot pendant que la réponse du devineur est en vol :
+    // l'ancienne réponse ne doit pas être comptée sur le nouveau mot.
+    await sendGuess(guesser, word)
+    await giver.page.getByRole('button', { name: 'Changer de mot' }).click({ noWaitAfter: true }).catch(() => { })
+    await sleep(2500)
+    const [g, d] = await Promise.all([snapshot(giver), snapshot(guesser)])
+    report.step(`course "changer de mot" vs réponse : meneur=${g.status}/${g.outcome} devineur=${d.status}/${d.outcome}`)
+    // Deux issues acceptables : soit la réponse est arrivée avant le changement
+    // (manche gagnée puis nouvelle manche), soit après (réponse rejetée). Dans
+    // les deux cas la nouvelle manche ne doit contenir aucune ancienne réponse.
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [] } }, 'nouvelle manche vierge après course')
+    giver.proxy.setLatency(0); guesser.proxy.setLatency(0)
+  },
+
+  // Rafale : plusieurs réponses envoyées très vite (double Entrée).
+  async rapidGuesses({ giver, guesser, report }) {
+    guesser.proxy.setLatency(200, 100)
+    await readWord(giver)
+    const input = guesser.page.getByPlaceholder('Votre proposition...')
+    await input.fill('RAFALE')
+    await input.press('Enter')
+    await input.press('Enter')
+    await sleep(1500)
+    await expectSync(report, giver, guesser, { both: { guesses: ['RAFALE'], status: 'running' } }, 'double envoi ne compte qu’une fois')
+    guesser.proxy.setLatency(0)
+  },
+}
+
+// ————————————————— Rapport —————————————————
+function makeReport(scenario) {
+  const report = {
+    scenario,
+    issues: [],
+    events: [],
+    steps: [],
+    expectNetErrors: false,
+    issue(kind, where, message, extra) {
+      this.issues.push({ kind, where, message, extra })
+      console.log(`   ✖ [${kind}] ${where}: ${message}`)
+      if (extra) console.log('     ', JSON.stringify(extra))
+    },
+    event(where, message) { this.events.push(`${where}: ${message}`) },
+    step(msg) { this.steps.push(msg); console.log(`   ${msg}`) },
+    attach(player) {
+      player.page.on('console', (msg) => { if (msg.type() === 'error') report.issue('console-error', player.tag, msg.text()) })
+      player.page.on('pageerror', (err) => report.issue('page-error', player.tag, err.message))
+    },
+  }
+  return report
+}
+
+async function main() {
+  const only = process.argv.slice(2)
+  const toRun = Object.keys(scenarios).filter((n) => !only.length || only.includes(n))
+  const { proc, logs } = await startServer()
+  const browser = await chromium.launch({ headless: !process.env.HEADFUL })
+  const results = []
+  try {
+    for (const name of toRun) {
+      console.log(`\n▶ ${name}`)
+      const report = makeReport(name)
+      const roomId = `e2e-${name}-${Date.now()}`
+      const serverLogStart = logs.length
+      let giver, guesser
+      try {
+        giver = await openPlayer(browser, { name: 'Alice', role: 'giver', roomId, report })
+        guesser = await openPlayer(browser, { name: 'Bob', role: 'guesser', roomId, report })
+        await scenarios[name]({ browser, giver, guesser, report })
+      } catch (e) {
+        report.issue('exception', name, e.message.split('\n')[0])
+      } finally {
+        for (const p of [giver, guesser]) {
+          if (!p) continue
+          await p.context.close().catch(() => { })
+          await p.proxy.close().catch(() => { })
+        }
+      }
+      const serverErrors = logs.slice(serverLogStart).filter((l) => /error/i.test(l) && !l.includes('[SOCKET IN]'))
+      for (const l of serverErrors) report.issue('server-log', 'server', l)
+      if (report.events.length) console.log('   événements socket :', report.events.join(' || '))
+      results.push(report)
+      await sleep(300)
+    }
+  } finally {
+    await browser.close()
+    proc.kill()
+  }
+
+  console.log('\n══════ Résumé ══════')
+  let failed = 0
+  for (const r of results) {
+    const ok = r.issues.length === 0
+    if (!ok) failed++
+    console.log(`${ok ? '✅' : '❌'} ${r.scenario}${ok ? '' : ` — ${r.issues.length} problème(s)`}`)
+    for (const i of r.issues) console.log(`     [${i.kind}] ${i.where}: ${i.message}`)
+  }
+  process.exit(failed ? 1 : 0)
+}
+
+main().catch((e) => { console.error(e); process.exit(2) })
