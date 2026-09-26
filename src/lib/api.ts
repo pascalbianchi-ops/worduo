@@ -1,4 +1,6 @@
 ﻿// src/lib/api.ts
+import { getCurrentServerUrl } from './socket';
+
 function normalizeBase(u: string) {
     return (u || '').trim().replace(/\/+$/, '');
 }
@@ -6,10 +8,11 @@ function join(base: string, path: string) {
     return `${normalizeBase(base)}/${String(path).replace(/^\/+/, '')}`;
 }
 
-// même base que le socket : serverUrl si présent, sinon même origine
+// Même serveur que le socket (localStorage > VITE_SOCKET_URL/VITE_SERVER_URL >
+// origine courante) : indispensable quand le front est servi ailleurs que le
+// backend (GitHub Pages → Render), sinon les requêtes partent vers la page.
 export function getApiBase(): string {
-    const stored = (typeof window !== 'undefined' && localStorage.getItem('serverUrl')) || '';
-    return stored ? normalizeBase(stored) : window.location.origin;
+    return normalizeBase(getCurrentServerUrl());
 }
 
 // Appel JSON robuste (échoue clairement si le serveur renvoie du HTML)

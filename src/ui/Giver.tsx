@@ -1,32 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useGame } from '../state/GameContext'
+import { api } from '../lib/api'
 
-// ===== Helpers HTTP (même base que le socket) =====
-function normalizeBase(u: string) {
-    return (u || '').trim().replace(/\/+$/, '')
-}
-function join(base: string, path: string) {
-    return `${normalizeBase(base)}/${String(path).replace(/^\/+/, '')}`
-}
-function getApiBase(): string {
-    const stored = (typeof window !== 'undefined' && localStorage.getItem('serverUrl')) || ''
-    return stored ? normalizeBase(stored) : (typeof window !== 'undefined' ? window.location.origin : '')
-}
-async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-    const url = join(getApiBase(), path)
-    const res = await fetch(url, { cache: 'no-store', ...init })
-    if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`HTTP ${res.status} on ${url} – ${txt.slice(0, 120)}`)
-    }
-    const ct = res.headers.get('content-type') || ''
-    if (!ct.includes('application/json')) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Expected JSON from ${url}, got "${ct}". Body: ${txt.slice(0, 120)}`)
-    }
-    return res.json() as Promise<T>
-}
-// ===== fin helpers =====
 
 function Confetti() {
     const pieces = useMemo(() => {

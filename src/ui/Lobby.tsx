@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useGame, getPlayerId } from '../state/GameContext'
+import { api } from '../lib/api'
 
 type JoinRes = { ok: boolean; message?: string; state?: any; redirectedFrom?: string }
 
@@ -30,8 +31,7 @@ export function Lobby() {
     let stop = false
     const load = async () => {
       try {
-        const res = await fetch('/api/rooms', { cache: 'no-store' })
-        const j = await res.json()
+        const j = await api<{ rooms?: unknown }>('/api/rooms')
         if (!stop) setRooms(Array.isArray(j.rooms) ? j.rooms : [])
       } catch {}
     }
