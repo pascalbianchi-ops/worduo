@@ -166,6 +166,33 @@ function leaveCurrentRoom(socket) {
   socketInfo.delete(socket.id)
 }
 
+// Libère le rôle tenu par un ancien socket du même joueur (reconnexion après
+// changement de réseau : l'ancien socket n'est pas encore détecté comme mort).
+// Contrairement à leaveCurrentRoom, ne supprime jamais la room, puisque le
+// joueur la rejoint aussitôt.
+function evictStaleSocket(io, sockId) {
+  const info = socketInfo.get(sockId)
+  if (!info) return
+  const r = rooms.get(info.roomId)
+  if (r) {
+    r.players = Math.max(0, r.players - 1)
+    if (r.roles[info.role] !== undefined) r.roles[info.role] = false
+  }
+  socketInfo.delete(sockId)
+  const old = io.sockets.sockets.get(sockId)
+  if (old) {
+    old.leave(info.roomId)
+    old.disconnect(true)
+  }
+}
+
+function findRoleHolder(roomId, role) {
+  for (const [sockId, info] of socketInfo.entries()) {
+    if (info.roomId === roomId && info.role === role) return { sockId, info }
+  }
+  return null
+}
+
 // ================== API ==================
 app.get('/api/health', (req, res) => res.json({ ok: true }))
 // Render vérifie par défaut un chemin /health (configurable dans les Settings
@@ -252,7 +279,7 @@ io.on('connection', (socket) => {
   // Join / switch de room
   socket.on('game:join', (payload, cb) => {
     try {
-      const { roomId, pseudo, role } = payload || {}
+      const { roomId, pseudo, role, playerId } = payload || {}
       if (!roomId || !pseudo || (role !== 'giver' && role !== 'guesser')) {
         return cb?.({ ok: false, message: 'roomId, pseudo et role requis' })
       }
@@ -262,9 +289,15 @@ io.on('connection', (socket) => {
 
       const r = ensureRoom(roomId)
 
-      // un rôle déjà pris ne peut pas être repris par un autre joueur
+      // un rôle déjà pris ne peut pas être repris par un autre joueur ; mais
+      // s'il est tenu par un ancien socket du même joueur, celui-ci reprend sa place
       if (r.roles[role]) {
-        return cb?.({ ok: false, message: `Le rôle ${role === 'giver' ? 'meneur' : 'devineur'} est déjà pris dans ce salon.` })
+        const holder = findRoleHolder(roomId, role)
+        if (playerId && holder && holder.info.playerId === playerId) {
+          evictStaleSocket(io, holder.sockId)
+        } else {
+          return cb?.({ ok: false, message: `Le rôle ${role === 'giver' ? 'meneur' : 'devineur'} est déjà pris dans ce salon.` })
+        }
       }
 
       r.players += 1
@@ -272,7 +305,7 @@ io.on('connection', (socket) => {
       if (!r.host) r.host = pseudo // premier arrivé = host par défaut
 
       socket.join(roomId)
-      socketInfo.set(socket.id, { roomId, role, pseudo })
+      socketInfo.set(socket.id, { roomId, role, pseudo, playerId: playerId ? String(playerId) : null })
 
       const state = publicState(r, socket.id)
       cb?.({ ok: true, state })

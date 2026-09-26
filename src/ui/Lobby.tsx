@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { useGame } from '../state/GameContext'
+import { useGame, getPlayerId } from '../state/GameContext'
 
 type JoinRes = { ok: boolean; message?: string; state?: any; redirectedFrom?: string }
 
 export function Lobby() {
-  const { socket, setState, rememberSession } = useGame()
+  const { state, socket, setState, rememberSession } = useGame()
   const [pseudo, setPseudo] = useState('')
   const [ready, setReady] = useState(false)
   const [roomId, setRoomId] = useState('Salon Turquoise')
@@ -56,7 +56,7 @@ export function Lobby() {
     if (!finalRoomId) { setError('Saisis un salon.'); return }
 
     setError(null); setInfo(null)
-    socket.emit('game:join', { roomId: finalRoomId, role, pseudo: name }, (res: JoinRes) => {
+    socket.emit('game:join', { roomId: finalRoomId, role, pseudo: name, playerId: getPlayerId() }, (res: JoinRes) => {
       if (res?.ok) {
         if (res.redirectedFrom && res.state?.roomId && res.state.roomId !== res.redirectedFrom) {
           setInfo(`Salle "${res.redirectedFrom}" complète → redirection vers "${res.state.roomId}"`)
@@ -146,7 +146,7 @@ export function Lobby() {
         </div>
       )}
 
-      {error && <div style={{marginBottom:12, padding:10, border:'1px solid #a33', background:'#2a0f14', borderRadius:8, color:'#FCA5A5'}}>⚠️ {error}</div>}
+      {(error || state.error) && <div style={{marginBottom:12, padding:10, border:'1px solid #a33', background:'#2a0f14', borderRadius:8, color:'#FCA5A5'}}>⚠️ {error || state.error}</div>}
       {info && <div style={{marginBottom:12, padding:10, border:'1px solid #5865f2', background:'#0b0f22', borderRadius:8}}>ℹ️ {info}</div>}
 
       {ready && (

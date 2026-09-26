@@ -61,6 +61,27 @@ function clearSession() {
   try { localStorage.removeItem(SESSION_KEY) } catch { }
 }
 
+// Identifiant stable du joueur (survit aux reconnexions et rechargements) :
+// permet au serveur de reconnaître qu'un nouveau socket appartient au même
+// joueur et de lui rendre son rôle, même si l'ancien socket n'est pas encore
+// détecté comme mort (changement de réseau sur mobile, par exemple).
+const PLAYER_ID_KEY = 'worduo:playerId'
+let memoryPlayerId: string | null = null
+
+export function getPlayerId(): string {
+  try {
+    let id = localStorage.getItem(PLAYER_ID_KEY)
+    if (!id) {
+      id = Math.random().toString(36).slice(2) + Date.now().toString(36)
+      localStorage.setItem(PLAYER_ID_KEY, id)
+    }
+    return id
+  } catch {
+    if (!memoryPlayerId) memoryPlayerId = Math.random().toString(36).slice(2) + Date.now().toString(36)
+    return memoryPlayerId
+  }
+}
+
 type Ctx = {
   state: GameState
   setState: React.Dispatch<React.SetStateAction<GameState>>
@@ -105,14 +126,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       // lobby vide.
       const saved = loadSession()
       if (saved && mounted.current) {
-        socket.emit('game:join', saved, (res: any) => {
+        socket.emit('game:join', { ...saved, playerId: getPlayerId() }, (res: any) => {
           if (!mounted.current) return
           if (res?.ok) {
             setState(prev => ({ ...prev, ...res.state, roomId: saved.roomId, role: saved.role, pseudo: saved.pseudo }))
           } else {
-            // La room n'existe plus ou le rôle est pris ailleurs : on abandonne
-            // la session sauvegardée pour retomber proprement sur le lobby.
+            // Le rôle est pris par un autre joueur : on abandonne la session
+            // sauvegardée et on retombe sur le lobby, plutôt que de laisser
+            // un écran de jeu dont le serveur ignore tout (actions rejetées).
             clearSession()
+            setState(prev => ({ ...defaultState, pseudo: prev.pseudo, error: res?.message || 'Impossible de rejoindre la partie.' }))
           }
         })
       }
