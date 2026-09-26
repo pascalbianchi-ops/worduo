@@ -7,6 +7,7 @@
         "build": "vite build && cd server && npm ci",
         "preview": "vite preview",
         "start": "node server/index.js",
+        "test": "node --test server/syllabe.test.js",
         "test:e2e": "vite build && node e2e/sync-test.mjs"
     },
     "engines": {

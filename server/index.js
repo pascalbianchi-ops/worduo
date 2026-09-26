@@ -6,6 +6,7 @@ import { Server } from 'socket.io'
 import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
+import { firstSyllable, revealsFirstSyllable } from './syllabe.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -368,7 +369,7 @@ io.on('connection', (socket) => {
       r.game = {
         status: 'running',
         word,
-        hint: payload?.hint ? String(payload.hint) : null,
+        hint: payload?.hint && !revealsFirstSyllable(payload.hint, word) ? String(payload.hint) : null,
         guesses: [],
         outcome: null,
         revealWord: null,
@@ -423,6 +424,9 @@ io.on('connection', (socket) => {
 
       const hint = String(payload?.hint || '').trim()
       if (!hint) return cb?.({ ok: false, message: 'Indice vide.' })
+      if (revealsFirstSyllable(hint, r.game.word)) {
+        return cb?.({ ok: false, message: `Interdit de donner la première syllabe du mot (« ${firstSyllable(r.game.word)} »).` })
+      }
 
       r.game.hint = hint
       broadcastState(io, r)

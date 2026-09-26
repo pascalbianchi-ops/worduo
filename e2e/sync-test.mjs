@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createProxy } from './net-proxy.mjs'
+import { firstSyllable } from '../server/syllabe.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER_PORT = 3100 + Math.floor(Math.random() * 500)
@@ -504,6 +505,31 @@ const scenarios = {
     }
     await sendGuess(guesser, 'TOUJOURSLA')
     await expectSync(report, giver, guesser, { both: { guesses: ['TOUJOURSLA'] } }, 'devineur légitime toujours en jeu')
+  },
+
+  // Le meneur tente de donner la première syllabe du mot : l'indice est
+  // refusé, il n'arrive pas chez le devineur et reste dans le champ.
+  async forbiddenSyllable({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    const syllable = firstSyllable(word).toLowerCase()
+    report.step(`mot ${word}, première syllabe « ${syllable} »`)
+    const forbidden = [`${syllable}...`]
+    if (syllable.length > 1) forbidden.push(`ça commence par « ${syllable} »`, syllable.split('').join('-'))
+    const input = giver.page.getByPlaceholder('Écrire un indice percutant...')
+    for (const hint of forbidden) {
+      await sendHint(giver, hint)
+      const refused = await giver.page.getByText('Interdit de donner la première syllabe').waitFor({ timeout: 5000 }).then(() => true, () => false)
+      if (!refused) report.issue('syllable', giver.tag, `indice "${hint}" non refusé`)
+      else report.step(`✔ "${hint}" refusé`)
+      if ((await input.inputValue()) !== hint) report.issue('syllable', giver.tag, `le champ a été vidé après le refus de "${hint}"`)
+      await expectSync(report, giver, guesser, { both: { status: 'running' }, guesser: { hint: '—' } }, `"${hint}" pas reçu par le devineur`)
+    }
+    const history = await giver.page.getByText('Mes indices').count()
+    if (history) report.issue('syllable', giver.tag, 'un indice refusé apparaît dans l’historique du meneur')
+    await sendHint(giver, 'indice permis')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'indice permis' } }, 'indice permis reçu')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouable après refus')
   },
 
   // Rafale : plusieurs réponses envoyées très vite (double Entrée).
