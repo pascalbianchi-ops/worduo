@@ -353,6 +353,9 @@ function clamp(v: number, a: number, b: number) {
 /* =========================
  * UI bits
  * ========================= */
+// 3× l'ancienne taille maximale (64px), pour ne pas déborder sur grand écran
+const MAX_TITLE_SIZE = 192;
+
 function LogoTitle() {
     const titleRef = useRef<HTMLHeadingElement | null>(null);
     const textRef = useRef<HTMLSpanElement | null>(null);
@@ -369,7 +372,7 @@ function LogoTitle() {
             title.style.fontSize = "100px";
             const textWidth = text.getBoundingClientRect().width;
             title.style.fontSize = prev;
-            if (textWidth > 0) setFontSize(Math.floor((100 * title.clientWidth) / textWidth * 0.98));
+            if (textWidth > 0) setFontSize(Math.min(MAX_TITLE_SIZE, Math.floor((100 * title.clientWidth) / textWidth * 0.98)));
         };
         fit();
         document.fonts?.ready.then(fit);
@@ -426,9 +429,9 @@ const styles: Record<string, React.CSSProperties> = {
     },
     title: {
         // Valeur de repli avant la mesure (voir LogoTitle)
-        fontSize: "22vw",
+        fontSize: "min(22vw, 192px)",
         lineHeight: 1,
-        letterSpacing: "0.02em",
+        letterSpacing: 1.2,
         whiteSpace: "nowrap" as const,
         alignSelf: "stretch",
         margin: "0 0 12px",
@@ -493,7 +496,10 @@ const css = `
     0 0 28px hsla(var(--c2), 98%, 60%, .35),
     0 2px 0 rgba(0,0,0,.2);
 }
-.glow .word { 
+.glow .word {
+  /* annule .word de index.css (18px) pour hériter de la taille du titre */
+  font-size: inherit;
+  margin-bottom: 0;
   background: linear-gradient(90deg, #c7a4ff, #7ad8ff);
   -webkit-background-clip: text;
   background-clip: text;
