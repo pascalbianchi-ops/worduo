@@ -532,6 +532,83 @@ const scenarios = {
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouable après refus')
   },
 
+  // Le meneur utilise un mot qui commence par les 4 mêmes lettres que le mot
+  // ("fluidifier" pour FLUIDE) : refusé, puis un indice permis passe.
+  async forbiddenPrefix({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    const hint = `un indice ${word.toLowerCase()}ette`
+    report.step(`mot ${word}, indice « ${hint} »`)
+    await sendHint(giver, hint)
+    const refused = await giver.page.getByText('Interdit d\'utiliser un mot qui commence comme').waitFor({ timeout: 5000 }).then(() => true, () => false)
+    if (!refused) report.issue('prefix', giver.tag, `indice "${hint}" non refusé`)
+    else report.step(`✔ "${hint}" refusé`)
+    await expectSync(report, giver, guesser, { both: { status: 'running' }, guesser: { hint: '—' } }, 'indice refusé pas reçu par le devineur')
+    await sendHint(giver, 'indice permis')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'indice permis' } }, 'indice permis reçu')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouable après refus')
+  },
+
+  // 4 joueurs connectés en même temps, répartis sur deux rooms : chaque
+  // room vit sa propre manche sans rien recevoir de l'autre, y compris quand
+  // les deux jouent simultanément ou qu'une room finit/relance sa manche.
+  async multiRoom({ browser, giver, guesser, report }) {
+    const roomB = `${giver.roomId}-B`
+    const extra = []
+    try {
+      const giverB = await openPlayer(browser, { name: 'Carol', role: 'giver', roomId: roomB, report })
+      extra.push(giverB)
+      const guesserB = await openPlayer(browser, { name: 'Dave', role: 'guesser', roomId: roomB, report })
+      extra.push(guesserB)
+      const [wordA, wordB] = await Promise.all([readWord(giver), readWord(giverB)])
+      report.step(`room A : ${wordA} / room B : ${wordB}`)
+      await Promise.all([
+        expectSync(report, giver, guesser, { both: { status: 'running', guesses: [] } }, 'A : manche démarrée'),
+        expectSync(report, giverB, guesserB, { both: { status: 'running', guesses: [] } }, 'B : manche démarrée'),
+      ])
+
+      // Actions simultanées dans les deux rooms
+      await Promise.all([sendHint(giver, 'indice A'), sendHint(giverB, 'indice B')])
+      await Promise.all([sendGuess(guesser, 'RATEA'), sendGuess(guesserB, 'RATEB')])
+      await Promise.all([
+        expectSync(report, giver, guesser, { both: { guesses: ['RATEA'] }, guesser: { hint: 'indice A' } }, 'A : ne voit que ses indices/réponses'),
+        expectSync(report, giverB, guesserB, { both: { guesses: ['RATEB'] }, guesser: { hint: 'indice B' } }, 'B : ne voit que ses indices/réponses'),
+      ])
+
+      // A gagne : B doit rester en cours, intacte
+      await sendGuess(guesser, wordA)
+      await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: wordA } }, 'A : gagné')
+      await sleep(500)
+      await expectSync(report, giverB, guesserB, { both: { status: 'running', guesses: ['RATEB'], outcome: null }, guesser: { hint: 'indice B' }, giver: { word: wordB } }, 'B : non affectée par la fin de A')
+
+      // A relance une manche pendant que B joue encore
+      await giver.page.getByRole('button', { name: 'Rejouer' }).click()
+      await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null }, guesser: { hint: '—' } }, 'A : nouvelle manche')
+      await sendGuess(guesserB, 'RATEB2')
+      await expectSync(report, giverB, guesserB, { both: { guesses: ['RATEB', 'RATEB2'], status: 'running' }, giver: { word: wordB } }, 'B : non affectée par la relance de A')
+
+      // B perd pendant que A joue
+      for (const f of ['FAUXB3', 'FAUXB4', 'FAUXB5']) await sendGuess(guesserB, f)
+      await expectSync(report, giverB, guesserB, { both: { status: 'ended', outcome: 'lose', reveal: wordB } }, 'B : perdu')
+      await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null } }, 'A : non affectée par la défaite de B')
+
+      // Un devineur de B qui recharge revient bien dans B (et pas dans A)
+      await guesserB.page.reload()
+      await guesserB.page.getByRole('button', { name: 'Jouer' }).click()
+      const inLobby = await guesserB.page.getByPlaceholder(/Ton pseudo…|Nom du salon…/).first().waitFor({ timeout: 10000 }).then(() => true, () => false)
+      if (inLobby) report.step('✔ B : devineur renvoyé au lobby après reload de fin de manche')
+      else report.issue('multiroom', guesserB.tag, 'après reload, le devineur de B n’est pas revenu au lobby')
+      const wordA2 = await readWord(giver)
+      await sendGuess(guesser, wordA2)
+      await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: wordA2 } }, 'A : 2e manche gagnée')
+    } finally {
+      for (const p of extra) {
+        await p.context.close().catch(() => { })
+        await p.proxy.close().catch(() => { })
+      }
+    }
+  },
+
   // Rafale : plusieurs réponses envoyées très vite (double Entrée).
   async rapidGuesses({ giver, guesser, report }) {
     guesser.proxy.setLatency(200, 100)
