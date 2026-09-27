@@ -186,8 +186,8 @@ const scenarios = {
   async fullGame({ giver, guesser, report }) {
     const word = await readWord(giver)
     await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [] } }, 'manche démarrée')
-    await sendHint(giver, 'premier indice')
-    await expectSync(report, giver, guesser, { guesser: { hint: 'premier indice' } }, 'indice reçu')
+    await sendHint(giver, 'premier-indice')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'premier-indice' } }, 'indice reçu')
     await sendGuess(guesser, 'XYZABC')
     await expectSync(report, giver, guesser, { both: { guesses: ['XYZABC'], status: 'running' } }, 'mauvaise réponse')
     await sendGuess(guesser, word)
@@ -208,12 +208,12 @@ const scenarios = {
   // Le devineur recharge la page en pleine manche puis revient.
   async guesserReload({ giver, guesser, report }) {
     const word = await readWord(giver)
-    await sendHint(giver, 'avant reload')
+    await sendHint(giver, 'avant-reload')
     await sendGuess(guesser, 'RATE')
     await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant reload')
     await guesser.page.reload()
     await enterGame(guesser)
-    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: ['RATE'] }, guesser: { hint: 'avant reload' }, giver: { word } }, 'devineur revenu après reload')
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: ['RATE'] }, guesser: { hint: 'avant-reload' }, giver: { word } }, 'devineur revenu après reload')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'gagné après reload')
   },
@@ -237,17 +237,17 @@ const scenarios = {
   // avec "Terminer" et revient au lobby.
   async replayAndFinish({ giver, guesser, report }) {
     const word = await readWord(giver)
-    await sendHint(giver, 'indice manche 1')
+    await sendHint(giver, 'indice-manche-1')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'manche 1 gagnée')
     await guesser.page.getByRole('button', { name: 'Rejouer' }).click()
     await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null }, guesser: { hint: '—' } }, 'manche relancée par le devineur')
     const word2 = await readWord(giver)
-    const hints = await giver.page.getByText('indice manche 1').count()
+    const hints = await giver.page.getByText('indice-manche-1').count()
     if (hints) report.issue('stale-hints', giver.tag, 'les indices de la manche précédente sont encore affichés')
-    await sendHint(giver, 'indice manche 2')
+    await sendHint(giver, 'indice-manche-2')
     await sendGuess(guesser, word2)
-    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word2 }, guesser: { hint: 'indice manche 2' } }, 'manche 2 gagnée')
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word2 }, guesser: { hint: 'indice-manche-2' } }, 'manche 2 gagnée')
 
     await giver.page.getByRole('button', { name: 'Terminer' }).click()
     const giverOut = await giver.page.getByPlaceholder(/Ton pseudo…|Nom du salon…/).first()
@@ -325,12 +325,12 @@ const scenarios = {
   // être conservée (même mot, mêmes propositions).
   async giverReload({ giver, guesser, report }) {
     const word = await readWord(giver)
-    await sendHint(giver, 'indice meneur')
+    await sendHint(giver, 'indice-meneur')
     await sendGuess(guesser, 'RATE')
     await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant reload meneur')
     await giver.page.reload()
     await enterGame(giver)
-    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'indice meneur' } }, 'meneur revenu, manche conservée')
+    await expectSync(report, giver, guesser, { both: { status: 'running', guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'indice-meneur' } }, 'meneur revenu, manche conservée')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'gagné après reload meneur')
   },
@@ -356,16 +356,16 @@ const scenarios = {
   // Coupure réseau franche de 5 s côté devineur.
   async networkCut({ giver, guesser, report }) {
     const word = await readWord(giver)
-    await sendHint(giver, 'avant coupure')
-    await expectSync(report, giver, guesser, { guesser: { hint: 'avant coupure' } }, 'indice avant coupure')
+    await sendHint(giver, 'avant-coupure')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'avant-coupure' } }, 'indice avant coupure')
     report.expectNetErrors = true
     guesser.proxy.cut(5000)
     await sleep(1000)
     // Le meneur envoie un indice pendant la coupure : il doit arriver après.
-    await sendHint(giver, 'pendant coupure')
+    await sendHint(giver, 'pendant-coupure')
     await sleep(6000)
     report.expectNetErrors = false
-    await expectSync(report, giver, guesser, { both: { status: 'running', connected: true }, guesser: { hint: 'pendant coupure' } }, 'rattrapage après coupure')
+    await expectSync(report, giver, guesser, { both: { status: 'running', connected: true }, guesser: { hint: 'pendant-coupure' } }, 'rattrapage après coupure')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win' } }, 'gagné après coupure')
   },
@@ -374,15 +374,15 @@ const scenarios = {
   // serveur garde l'ancien socket jusqu'au pingTimeout (~55 s).
   async halfDeadConnection({ giver, guesser, report }) {
     const word = await readWord(giver)
-    await sendHint(giver, 'avant bascule')
+    await sendHint(giver, 'avant-bascule')
     await sendGuess(guesser, 'RATE')
     await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant bascule réseau')
     report.expectNetErrors = true
     guesser.proxy.halfDead()
     await sleep(3000)
     report.expectNetErrors = false
-    await sendHint(giver, 'après bascule')
-    await expectSync(report, giver, guesser, { both: { connected: true, guesses: ['RATE'] }, guesser: { hint: 'après bascule' } }, 'devineur resynchronisé après bascule')
+    await sendHint(giver, 'après-bascule')
+    await expectSync(report, giver, guesser, { both: { connected: true, guesses: ['RATE'] }, guesser: { hint: 'après-bascule' } }, 'devineur resynchronisé après bascule')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win' } }, 'gagné après bascule')
   },
@@ -396,8 +396,8 @@ const scenarios = {
     giver.proxy.halfDead()
     await sleep(3000)
     report.expectNetErrors = false
-    await sendHint(giver, 'meneur revenu')
-    await expectSync(report, giver, guesser, { both: { connected: true, guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'meneur revenu' } }, 'meneur resynchronisé après bascule')
+    await sendHint(giver, 'meneur-revenu')
+    await expectSync(report, giver, guesser, { both: { connected: true, guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'meneur-revenu' } }, 'meneur resynchronisé après bascule')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win' } }, 'gagné après bascule meneur')
   },
@@ -407,17 +407,17 @@ const scenarios = {
     giver.proxy.setLatency(300, 400)
     guesser.proxy.setLatency(300, 400)
     const word = await readWord(giver)
-    await sendHint(giver, 'lent 1')
+    await sendHint(giver, 'lent-1')
     // Le meneur tape déjà l'indice suivant pendant que le premier est en vol :
     // l'accusé de réception du premier ne doit pas effacer sa saisie.
     const hintInput = giver.page.getByPlaceholder('Écrire un indice percutant...')
-    await hintInput.fill('lent 2')
+    await hintInput.fill('lent-2')
     await giver.page.getByRole('button', { name: 'Envoi…' }).waitFor({ state: 'detached', timeout: 10000 }).catch(() => { })
     const kept = await hintInput.inputValue()
-    if (kept !== 'lent 2') report.issue('lost-input', 'Alice/giver', `saisie "lent 2" effacée par l'accusé du 1er indice (reste "${kept}")`)
-    await expectSync(report, giver, guesser, { guesser: { hint: 'lent 1' } }, '1er indice sous latence')
-    await sendHint(giver, 'lent 2')
-    await expectSync(report, giver, guesser, { guesser: { hint: 'lent 2' } }, 'indices sous latence')
+    if (kept !== 'lent-2') report.issue('lost-input', 'Alice/giver', `saisie "lent 2" effacée par l'accusé du 1er indice (reste "${kept}")`)
+    await expectSync(report, giver, guesser, { guesser: { hint: 'lent-1' } }, '1er indice sous latence')
+    await sendHint(giver, 'lent-2')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'lent-2' } }, 'indices sous latence')
     await sendGuess(guesser, 'LENT')
     await expectSync(report, giver, guesser, { both: { guesses: ['LENT'] } }, 'réponse sous latence')
     // Le meneur change de mot pendant que la réponse du devineur est en vol :
@@ -454,7 +454,7 @@ const scenarios = {
   // joueur côté serveur. La manche doit survivre à leur retour.
   async bothDrop({ giver, guesser, report }) {
     const word = await readWord(giver)
-    await sendHint(giver, 'avant double coupure')
+    await sendHint(giver, 'avant-double-coupure')
     await sendGuess(guesser, 'RATE')
     await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant double coupure')
     report.expectNetErrors = true
@@ -462,7 +462,7 @@ const scenarios = {
     guesser.proxy.cut(3500)
     await sleep(6000)
     report.expectNetErrors = false
-    await expectSync(report, giver, guesser, { both: { status: 'running', connected: true, guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'avant double coupure' } }, 'manche conservée après double coupure')
+    await expectSync(report, giver, guesser, { both: { status: 'running', connected: true, guesses: ['RATE'] }, giver: { word }, guesser: { hint: 'avant-double-coupure' } }, 'manche conservée après double coupure')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'gagné après double coupure')
   },
@@ -472,7 +472,7 @@ const scenarios = {
   // un état cohérent et pouvoir continuer à jouer.
   async serverRestart({ giver, guesser, report, restartServer }) {
     await readWord(giver)
-    await sendHint(giver, 'avant redémarrage')
+    await sendHint(giver, 'avant-redémarrage')
     await sendGuess(guesser, 'RATE')
     await expectSync(report, giver, guesser, { both: { guesses: ['RATE'] } }, 'état avant redémarrage')
     report.expectNetErrors = true
@@ -514,7 +514,7 @@ const scenarios = {
     const syllable = firstSyllable(word).toLowerCase()
     report.step(`mot ${word}, première syllabe « ${syllable} »`)
     const forbidden = [`${syllable}...`]
-    if (syllable.length > 1) forbidden.push(`ça commence par « ${syllable} »`, syllable.split('').join('-'))
+    if (syllable.length > 1) forbidden.push(`«${syllable}»`, syllable.split('').join('-'))
     const input = giver.page.getByPlaceholder('Écrire un indice percutant...')
     for (const hint of forbidden) {
       await sendHint(giver, hint)
@@ -526,8 +526,8 @@ const scenarios = {
     }
     const history = await giver.page.getByText('Mes indices').count()
     if (history) report.issue('syllable', giver.tag, 'un indice refusé apparaît dans l’historique du meneur')
-    await sendHint(giver, 'indice permis')
-    await expectSync(report, giver, guesser, { guesser: { hint: 'indice permis' } }, 'indice permis reçu')
+    await sendHint(giver, 'indice-permis')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'indice-permis' } }, 'indice permis reçu')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouable après refus')
   },
@@ -536,15 +536,39 @@ const scenarios = {
   // ("fluidifier" pour FLUIDE) : refusé, puis un indice permis passe.
   async forbiddenPrefix({ giver, guesser, report }) {
     const word = await readWord(giver)
-    const hint = `un indice ${word.toLowerCase()}ette`
+    const hint = `${word.toLowerCase()}ette`
     report.step(`mot ${word}, indice « ${hint} »`)
     await sendHint(giver, hint)
     const refused = await giver.page.getByText('Interdit d\'utiliser un mot qui commence comme').waitFor({ timeout: 5000 }).then(() => true, () => false)
     if (!refused) report.issue('prefix', giver.tag, `indice "${hint}" non refusé`)
     else report.step(`✔ "${hint}" refusé`)
     await expectSync(report, giver, guesser, { both: { status: 'running' }, guesser: { hint: '—' } }, 'indice refusé pas reçu par le devineur')
-    await sendHint(giver, 'indice permis')
-    await expectSync(report, giver, guesser, { guesser: { hint: 'indice permis' } }, 'indice permis reçu')
+    await sendHint(giver, 'indice-permis')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'indice-permis' } }, 'indice permis reçu')
+    await sendGuess(guesser, word)
+    await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouable après refus')
+  },
+
+  // Indice de plusieurs mots ou de plus de 25 caractères : refusé avec un
+  // message clair, le champ n'est pas vidé, puis un indice d'un mot passe.
+  async hintFormat({ giver, guesser, report }) {
+    const word = await readWord(giver)
+    const input = giver.page.getByPlaceholder('Écrire un indice percutant...')
+    const hint = 'deux mots'
+    await sendHint(giver, hint)
+    const refused = await giver.page.getByText('Un indice doit tenir en un seul mot').waitFor({ timeout: 5000 }).then(() => true, () => false)
+    if (!refused) report.issue('format', giver.tag, `indice "${hint}" non refusé`)
+    else report.step(`✔ "${hint}" refusé`)
+    if ((await input.inputValue()) !== hint) report.issue('format', giver.tag, `le champ a été vidé après le refus de "${hint}"`)
+    await expectSync(report, giver, guesser, { both: { status: 'running' }, guesser: { hint: '—' } }, `"${hint}" pas reçu par le devineur`)
+    // Le champ bloque la saisie à 25 caractères (le serveur refuse aussi au-delà)
+    await input.fill('')
+    await input.pressSequentially('x'.repeat(30))
+    const typed = await input.inputValue()
+    if (typed.length !== 25) report.issue('format', giver.tag, `le champ accepte ${typed.length} caractères au lieu de 25`)
+    else report.step('✔ saisie limitée à 25 caractères')
+    await sendHint(giver, 'anticonstitutionnellement')
+    await expectSync(report, giver, guesser, { guesser: { hint: 'anticonstitutionnellement' } }, 'indice de 25 caractères reçu')
     await sendGuess(guesser, word)
     await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: word } }, 'partie jouable après refus')
   },
@@ -568,18 +592,18 @@ const scenarios = {
       ])
 
       // Actions simultanées dans les deux rooms
-      await Promise.all([sendHint(giver, 'indice A'), sendHint(giverB, 'indice B')])
+      await Promise.all([sendHint(giver, 'indice-A'), sendHint(giverB, 'indice-B')])
       await Promise.all([sendGuess(guesser, 'RATEA'), sendGuess(guesserB, 'RATEB')])
       await Promise.all([
-        expectSync(report, giver, guesser, { both: { guesses: ['RATEA'] }, guesser: { hint: 'indice A' } }, 'A : ne voit que ses indices/réponses'),
-        expectSync(report, giverB, guesserB, { both: { guesses: ['RATEB'] }, guesser: { hint: 'indice B' } }, 'B : ne voit que ses indices/réponses'),
+        expectSync(report, giver, guesser, { both: { guesses: ['RATEA'] }, guesser: { hint: 'indice-A' } }, 'A : ne voit que ses indices/réponses'),
+        expectSync(report, giverB, guesserB, { both: { guesses: ['RATEB'] }, guesser: { hint: 'indice-B' } }, 'B : ne voit que ses indices/réponses'),
       ])
 
       // A gagne : B doit rester en cours, intacte
       await sendGuess(guesser, wordA)
       await expectSync(report, giver, guesser, { both: { status: 'ended', outcome: 'win', reveal: wordA } }, 'A : gagné')
       await sleep(500)
-      await expectSync(report, giverB, guesserB, { both: { status: 'running', guesses: ['RATEB'], outcome: null }, guesser: { hint: 'indice B' }, giver: { word: wordB } }, 'B : non affectée par la fin de A')
+      await expectSync(report, giverB, guesserB, { both: { status: 'running', guesses: ['RATEB'], outcome: null }, guesser: { hint: 'indice-B' }, giver: { word: wordB } }, 'B : non affectée par la fin de A')
 
       // A relance une manche pendant que B joue encore
       await giver.page.getByRole('button', { name: 'Rejouer' }).click()
@@ -588,7 +612,14 @@ const scenarios = {
       await expectSync(report, giverB, guesserB, { both: { guesses: ['RATEB', 'RATEB2'], status: 'running' }, giver: { word: wordB } }, 'B : non affectée par la relance de A')
 
       // B perd pendant que A joue
-      for (const f of ['FAUXB3', 'FAUXB4', 'FAUXB5']) await sendGuess(guesserB, f)
+      // Attendre chaque réponse : le client ignore Entrée tant que la précédente
+      // n'est pas confirmée, et fill() écraserait alors la réponse non envoyée.
+      const guessesB = ['RATEB', 'RATEB2']
+      for (const f of ['FAUXB3', 'FAUXB4', 'FAUXB5']) {
+        await sendGuess(guesserB, f)
+        guessesB.push(f)
+        await expectSync(report, giverB, guesserB, { both: { guesses: [...guessesB] } }, `B : réponse ${f} enregistrée`)
+      }
       await expectSync(report, giverB, guesserB, { both: { status: 'ended', outcome: 'lose', reveal: wordB } }, 'B : perdu')
       await expectSync(report, giver, guesser, { both: { status: 'running', guesses: [], outcome: null } }, 'A : non affectée par la défaite de B')
 

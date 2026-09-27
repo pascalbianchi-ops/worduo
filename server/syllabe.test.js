@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { firstSyllable, revealsFirstSyllable, sharesPrefix } from './syllabe.js'
+import { firstSyllable, revealsFirstSyllable, sharesPrefix, containsSpace, exceedsMaxLength, MAX_HINT_LENGTH } from './syllabe.js'
 
 test('première syllabe de mots courants', () => {
   const cases = {
@@ -121,4 +121,32 @@ test('refuse un mot de l’indice qui commence par les 4 mêmes lettres', () => 
   }
   assert.equal(sharesPrefix('indice', ''), false)
   assert.equal(sharesPrefix('', 'MAISON'), false)
+})
+
+test('refuse un indice de plusieurs mots', () => {
+  const refused = ['deux mots', 'on y habite', 'mot\tavec tabulation', 'espace insécable', 'ligne\nsuivante']
+  for (const hint of refused) {
+    assert.equal(containsSpace(hint), true, JSON.stringify(hint))
+  }
+  const accepted = ['maison', 'arc-en-ciel', "aujourd'hui", 'Éléphant', 'porte-monnaie']
+  for (const hint of accepted) {
+    assert.equal(containsSpace(hint), false, hint)
+  }
+  assert.equal(containsSpace(''), false)
+  assert.equal(containsSpace(null), false)
+})
+
+test('refuse un indice de plus de 25 caractères', () => {
+  assert.equal(MAX_HINT_LENGTH, 25)
+  assert.equal(exceedsMaxLength('anticonstitutionnellement'), false) // 25 : la limite
+  assert.equal(exceedsMaxLength('anticonstitutionnellementx'), true) // 26
+  assert.equal(exceedsMaxLength('a'.repeat(25)), false)
+  assert.equal(exceedsMaxLength('a'.repeat(26)), true)
+  // Une lettre accentuée compte pour un caractère, même décomposée (e + accent)
+  assert.equal(exceedsMaxLength('é'.repeat(25)), false)
+  assert.equal(exceedsMaxLength('é'.repeat(25)), false)
+  assert.equal(exceedsMaxLength('é'.repeat(26)), true)
+  assert.equal(exceedsMaxLength('maison'), false)
+  assert.equal(exceedsMaxLength(''), false)
+  assert.equal(exceedsMaxLength(null), false)
 })

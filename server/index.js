@@ -6,7 +6,7 @@ import { Server } from 'socket.io'
 import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { firstSyllable, revealsFirstSyllable, sharesPrefix, forbiddenPrefix } from './syllabe.js'
+import { firstSyllable, revealsFirstSyllable, sharesPrefix, forbiddenPrefix, containsSpace, exceedsMaxLength, MAX_HINT_LENGTH } from './syllabe.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -369,7 +369,8 @@ io.on('connection', (socket) => {
       r.game = {
         status: 'running',
         word,
-        hint: payload?.hint && !revealsFirstSyllable(payload.hint, word) && !sharesPrefix(payload.hint, word) ? String(payload.hint) : null,
+        hint: payload?.hint && !containsSpace(String(payload.hint).trim()) && !exceedsMaxLength(String(payload.hint).trim())
+          && !revealsFirstSyllable(payload.hint, word) && !sharesPrefix(payload.hint, word) ? String(payload.hint).trim() : null,
         guesses: [],
         outcome: null,
         revealWord: null,
@@ -424,6 +425,12 @@ io.on('connection', (socket) => {
 
       const hint = String(payload?.hint || '').trim()
       if (!hint) return cb?.({ ok: false, message: 'Indice vide.' })
+      if (containsSpace(hint)) {
+        return cb?.({ ok: false, message: 'Un indice doit tenir en un seul mot, sans espace.' })
+      }
+      if (exceedsMaxLength(hint)) {
+        return cb?.({ ok: false, message: `Indice trop long : ${MAX_HINT_LENGTH} caractères maximum.` })
+      }
       if (revealsFirstSyllable(hint, r.game.word)) {
         return cb?.({ ok: false, message: `Interdit de donner la première syllabe du mot (« ${firstSyllable(r.game.word)} »).` })
       }

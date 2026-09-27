@@ -210,6 +210,7 @@ export function Giver() {
                             value={hint}
                             onChange={e => setHint(e.target.value)}
                             placeholder="Écrire un indice percutant..."
+                            maxLength={25}
                             onKeyDown={e => e.key === 'Enter' && send()}
                             style={{ flex: '1 1 200px', minWidth: 0 }}
                         />

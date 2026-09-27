@@ -112,3 +112,16 @@ export function sharesPrefix(hint, word) {
   const tokens = prepare(hint).normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^A-Z]+/).filter(Boolean)
   return tokens.some((t) => t.startsWith(prefix))
 }
+
+/** Longueur maximale d'un indice : celle d'"anticonstitutionnellement". */
+export const MAX_HINT_LENGTH = 25
+
+/** Vrai si l'indice contient un espace (ou tout autre blanc) : il doit tenir en un seul mot. */
+export function containsSpace(hint) {
+  return /\s/.test(String(hint ?? ''))
+}
+
+/** Vrai si l'indice dépasse 25 caractères (une lettre accentuée compte pour un). */
+export function exceedsMaxLength(hint) {
+  return [...String(hint ?? '').normalize('NFC')].length > MAX_HINT_LENGTH
+}
