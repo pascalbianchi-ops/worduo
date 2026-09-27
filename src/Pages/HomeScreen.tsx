@@ -1,5 +1,5 @@
 // src/Pages/HomeScreen.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { VersionBadge } from "../ui/VersionBadge";
 
 type Props = { onStart: () => void };
@@ -354,10 +354,39 @@ function clamp(v: number, a: number, b: number) {
  * UI bits
  * ========================= */
 function LogoTitle() {
+    const titleRef = useRef<HTMLHeadingElement | null>(null);
+    const textRef = useRef<HTMLSpanElement | null>(null);
+    const [fontSize, setFontSize] = useState<number | null>(null);
+
+    // Ajuste la taille de police pour que le titre occupe toute la largeur
+    // disponible : on mesure le texte à 100px puis on met à l'échelle.
+    useLayoutEffect(() => {
+        const fit = () => {
+            const title = titleRef.current;
+            const text = textRef.current;
+            if (!title || !text) return;
+            const prev = title.style.fontSize;
+            title.style.fontSize = "100px";
+            const textWidth = text.getBoundingClientRect().width;
+            title.style.fontSize = prev;
+            if (textWidth > 0) setFontSize(Math.floor((100 * title.clientWidth) / textWidth * 0.98));
+        };
+        fit();
+        document.fonts?.ready.then(fit);
+        window.addEventListener("resize", fit);
+        return () => window.removeEventListener("resize", fit);
+    }, []);
+
     return (
-        <h1 style={styles.title} className="glow">
-            <span className="word">Wor</span>
-            <span className="word alt">Duo</span>
+        <h1
+            ref={titleRef}
+            style={{ ...styles.title, ...(fontSize ? { fontSize } : null) }}
+            className="glow"
+        >
+            <span ref={textRef} style={{ display: "inline-block" }}>
+                <span className="word">Wor</span>
+                <span className="word alt">Duo</span>
+            </span>
         </h1>
     );
 }
@@ -396,9 +425,12 @@ const styles: Record<string, React.CSSProperties> = {
         gap: 16,
     },
     title: {
-        fontSize: "clamp(32px, 12vw, 64px)",
+        // Valeur de repli avant la mesure (voir LogoTitle)
+        fontSize: "22vw",
         lineHeight: 1,
-        letterSpacing: 1.2,
+        letterSpacing: "0.02em",
+        whiteSpace: "nowrap" as const,
+        alignSelf: "stretch",
         margin: "0 0 12px",
         fontWeight: 900,
     },
