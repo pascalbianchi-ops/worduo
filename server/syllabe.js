@@ -89,3 +89,26 @@ export function revealsFirstSyllable(hint, word) {
   }
   return false
 }
+
+/** Nombre de premières lettres qu'un mot de l'indice ne peut pas partager avec le mot. */
+export const PREFIX_LENGTH = 4
+
+/**
+ * Début du mot interdit dans l'indice : ses 4 premières lettres normalisées,
+ * ou le mot entier s'il est plus court (ex. "Fluide" → "FLUI").
+ */
+export function forbiddenPrefix(word) {
+  return normalize(word).slice(0, PREFIX_LENGTH)
+}
+
+/**
+ * Vrai si un mot de l'indice commence par les mêmes 4 premières lettres que
+ * le mot à deviner, dans le même ordre ("fluidifier" pour FLUIDE), ce que la
+ * règle de la syllabe laisse passer.
+ */
+export function sharesPrefix(hint, word) {
+  const prefix = forbiddenPrefix(word)
+  if (!prefix) return false
+  const tokens = prepare(hint).normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^A-Z]+/).filter(Boolean)
+  return tokens.some((t) => t.startsWith(prefix))
+}

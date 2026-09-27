@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { firstSyllable, revealsFirstSyllable } from './syllabe.js'
+import { firstSyllable, revealsFirstSyllable, sharesPrefix } from './syllabe.js'
 
 test('première syllabe de mots courants', () => {
   const cases = {
@@ -97,4 +97,28 @@ test('chaque mot de la banque a une première syllabe non vide', () => {
     // Donner la syllabe seule doit toujours être refusé
     assert.equal(revealsFirstSyllable(s.toLowerCase(), w), true, `${w} → ${s}`)
   }
+})
+
+test('refuse un mot de l’indice qui commence par les 4 mêmes lettres', () => {
+  const refused = [
+    ['fluidifier', 'FLUIDE'],
+    ['pour fluidifier la circulation', 'FLUIDE'],
+    ['Maisonnette', 'MAISON'],
+    ['chapellerie', 'CHAPEAU'],
+    ['éléphanteau', 'ÉLÉPHANT'], // accents ignorés
+    ['selle', 'SEL'], // mot plus court que 4 lettres : le mot entier
+  ]
+  for (const [hint, word] of refused) {
+    assert.equal(sharesPrefix(hint, word), true, `${hint} / ${word}`)
+  }
+  const accepted = [
+    ['maintenant', 'MAISON'], // seulement 3 lettres en commun
+    ['liquide', 'FLUIDE'],
+    ['on y habite', 'MAISON'],
+  ]
+  for (const [hint, word] of accepted) {
+    assert.equal(sharesPrefix(hint, word), false, `${hint} / ${word}`)
+  }
+  assert.equal(sharesPrefix('indice', ''), false)
+  assert.equal(sharesPrefix('', 'MAISON'), false)
 })
