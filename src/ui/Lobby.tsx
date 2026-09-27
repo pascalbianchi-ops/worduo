@@ -159,13 +159,11 @@ export function Lobby() {
             {rooms.map(r => (
               <li key={r.id} style={{border:'1px solid #222', borderRadius:8, padding:10}}>
                 <div><b>{r.host}</b> attend un <b>{r.waitingFor}</b> — <i>{r.color}</i></div>
+                {/* Le rôle est imposé : c'est celui qui manque dans la room */}
                 <div style={{marginTop:8, display:'flex', gap:8}}>
-                  <button onClick={()=>join('giver', r.id)}
+                  <button onClick={()=>join(r.waitingFor === 'meneur' ? 'giver' : 'guesser', r.id)}
                     style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
-                  >Rejoindre en Meneur</button>
-                  <button onClick={()=>join('guesser', r.id)}
-                    style={{padding:'6px 10px', borderRadius:6, border:'1px solid #666', background:'#222', color:'#fff', cursor:'pointer'}}
-                  >Rejoindre en Devineur</button>
+                  >{r.waitingFor === 'meneur' ? 'Rejoindre en Meneur' : 'Rejoindre en Devineur'}</button>
                 </div>
               </li>
             ))}
