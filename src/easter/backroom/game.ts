@@ -18,8 +18,10 @@ export type GameState = {
   apps: Record<string, AppState>
   /** Malaise 0..1 provoqué par les silhouettes (effets visuels et sonores) */
   dread: number
-  /** Secondes depuis la dernière apparition surprise (coupure de lumière, secousse) */
+  /** Secondes depuis qu'une ombre qui fixait a disparu (coupure de lumière, secousse) */
   sinceScare: number
+  /** Secondes depuis la dernière apparition (vacillement des néons) */
+  sinceAppear: number
   /** Événements sonores en attente, vidés par l'interface à chaque image */
   events: AppEvent[]
   /** Plus courte distance jamais atteinte avec une silhouette visible, et laquelle */
@@ -36,7 +38,7 @@ const READ_RANGE = 1.6
 export function newGame(level: Level): GameState {
   return {
     ...level.start, found: [], message: null, prompt: null, done: false,
-    apps: initApparitions(level), dread: 0, sinceScare: Infinity, events: [], closest: Infinity, closestId: '',
+    apps: initApparitions(level), dread: 0, sinceScare: Infinity, sinceAppear: Infinity, events: [], closest: Infinity, closestId: '',
   }
 }
 
@@ -70,8 +72,10 @@ function nearItem(level: Level, s: GameState) {
 export function update(level: Level, s: GameState, input: Input, dt: number) {
   if (s.done) return
   s.sinceScare += dt
+  s.sinceAppear += dt
   const fx = updateApparitions(level, s.apps, s, dt)
   if (fx.events.includes('scare')) s.sinceScare = 0
+  if (fx.events.includes('appear')) s.sinceAppear = 0
   s.events.push(...fx.events)
   s.dread = fx.dread
   if (!s.message) {
@@ -80,15 +84,7 @@ export function update(level: Level, s: GameState, input: Input, dt: number) {
     s.a = ((s.a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
     const move = (input.up ? 1 : 0) - (input.down ? 1 : 0)
     if (move) {
-      let step = move * MOVE_SPEED * dt
-      const mx = Math.cos(s.a) * move, my = Math.sin(s.a) * move
-      // avancer vers un gardien est pénible, comme dans un air épais ;
-      // s'en éloigner reste libre
-      if (fx.push) {
-        const gx = fx.push.x - s.x, gy = fx.push.y - s.y
-        const toward = (mx * gx + my * gy) / (Math.hypot(gx, gy) || 1)
-        if (toward > 0) step *= 1 - 0.6 * fx.push.k * toward
-      }
+      const step = move * MOVE_SPEED * dt
       const nx = s.x + Math.cos(s.a) * step
       const ny = s.y + Math.sin(s.a) * step
       // glissement le long des murs : on tente chaque axe séparément

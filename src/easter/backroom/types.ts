@@ -9,14 +9,14 @@ export const ITEM_LABEL: Record<ItemId, string> = {
 }
 
 /**
- * Silhouette sombre, jamais atteignable, qui n'apparaît qu'une fois :
- * - guard   : surgit devant un indice quand on s'en approche, s'évanouit
- *             si on insiste (ou s'efface si on recule)
- * - glimpse : aperçue de loin, se dérobe aussitôt dans la direction (dx, dy)
+ * Ombre furtive aperçue de loin, une seule fois, jamais atteignable :
+ * - cross : traverse un couloir ou une salle dans la direction (dx, dy)
+ * - peek  : observe depuis un coin, puis se retire dans la direction (dx, dy)
+ * - stare : immobile, fixe le joueur, puis disparaît d'un coup
  */
 export type Apparition = {
   id: string
-  kind: 'guard' | 'glimpse'
+  kind: 'cross' | 'peek' | 'stare'
   x: number
   y: number
   dx: number

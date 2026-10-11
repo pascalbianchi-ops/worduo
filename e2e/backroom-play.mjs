@@ -36,12 +36,19 @@ function startServer(logs) {
 }
 
 // ————————— Pilotage —————————
-function makeBot(page) {
+function makeBot(page, onAppear = async () => { }) {
   // Garde la trace du malaise maximal observé (remis à zéro par resetDread)
+  // et signale chaque ombre au moment où elle se montre
   let maxDread = 0
+  const seen = new Set()
   const state = async () => {
     const s = await page.evaluate(() => window.__backroom?.state)
-    if (s) maxDread = Math.max(maxDread, s.dread)
+    if (s) {
+      maxDread = Math.max(maxDread, s.dread)
+      for (const [id, a] of Object.entries(s.apps)) {
+        if (a.phase !== 'idle' && !seen.has(id)) { seen.add(id); await onAppear(id, a, s) }
+      }
+    }
     return s
   }
   const resetDread = () => { maxDread = 0 }
@@ -234,7 +241,13 @@ async function main() {
     }
 
     // Les boutons vides ne doivent rien faire
-    const bot = makeBot(page)
+    const appeared = []
+    const bot = makeBot(page, async (id, a, s) => {
+      const d = Math.hypot(a.x - s.x, a.y - s.y)
+      appeared.push({ id, d })
+      console.log(`   ✦ ombre « ${id} » aperçue à ${d.toFixed(1)} cases`)
+      if (a.phase === 'in') await shot(page, `ombre-${id}`)
+    })
     const before = await bot.state()
     for (const b of ['Bouton B', 'Bouton C', 'Bouton D']) await bot.tap(b)
     const after = await bot.state()
@@ -267,39 +280,9 @@ async function main() {
     const clue = (id) => level.clues.find((c) => c.id === id)
     const item = (id) => level.items.find((i) => i.id === id)
 
-    const guard = (id) => level.apparitions.find((a) => a.id === `indice-${id}`)
-
-    // S'approche de l'indice en le regardant : le gardien doit surgir, faire
-    // monter le malaise, puis s'évanouir avant d'être atteint.
-    async function confrontGuard(id, nx, ny) {
-      const g = guard(id)
-      const s0 = await bot.state()
-      if (s0.apps[g.id].phase !== 'idle') return fail(`gardien ${id} déjà déclenché avant l'approche (${s0.apps[g.id].phase})`)
-      const path = pf.bfs(Math.floor(s0.x), Math.floor(s0.y), nx, ny)
-      if (path.length > 3) {
-        const [ax, ay] = path[path.length - 3]
-        await travel(bot, pf, ax, ay, `approche indice ${id}`)
-      }
-      const s1 = await bot.state()
-      await bot.turnTo(Math.atan2(g.y - s1.y, g.x - s1.x))
-      for (let i = 0; i < 25; i++) {
-        const st = await bot.state()
-        if (st.apps[g.id].phase !== 'idle') break
-        await bot.hold('Avancer', 80)
-      }
-      const st = await bot.state()
-      if (st.apps[g.id].phase === 'idle') return fail(`gardien de l'indice ${id} non déclenché`)
-      await page.waitForTimeout(350)
-      await shot(page, `apparition-${id}`)
-      const st2 = await bot.state()
-      if (st2.dread <= 0.1) fail(`gardien ${id} : malaise trop faible (${st2.dread.toFixed(2)})`)
-      else ok(`gardien de l'indice ${id} surgit (malaise ${st2.dread.toFixed(2)})`)
-    }
-
     async function readClue(id, keyword) {
       const c = clue(id)
       const [nx, ny] = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([x, y]) => pf.free(x, y))
-      await confrontGuard(id, nx, ny)
       await travel(bot, pf, nx, ny, `indice ${id}`)
       await bot.turnTo(Math.atan2(c.y - ny, c.x - nx))
       const s = await bot.state()
@@ -316,10 +299,6 @@ async function main() {
       if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 0.01) fail('le joueur bouge alors qu’un message est affiché')
       await bot.tap('Bouton A')
       if ((await bot.state()).message) fail(`indice ${id} : le message ne se ferme pas avec A`)
-      const after = await bot.state()
-      const ph = after.apps[`indice-${id}`].phase
-      if (!['vanish', 'gone'].includes(ph)) fail(`gardien ${id} : attendu évanoui en insistant, phase ${ph}`)
-      else ok(`gardien ${id} évanoui avant d'être atteint`)
     }
 
     async function pickUp(id, n) {
@@ -351,38 +330,39 @@ async function main() {
     console.log('▶ Partie')
     await readClue(1, 'CASSEROLE')
 
-    // Une fois mais pas deux : on s'éloigne puis on revient lire le même mur
-    {
-      const c = clue(1)
-      const [nx, ny] = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([x, y]) => pf.free(x, y))
-      await travel(bot, pf, nx + 3, ny, 'éloignement')
-      await page.waitForTimeout(600)
-      bot.resetDread()
-      const g = guard(1)
-      const s1 = await bot.state()
-      await bot.turnTo(Math.atan2(g.y - s1.y, g.x - s1.x))
-      await travel(bot, pf, nx, ny, 'retour indice 1')
-      await bot.turnTo(Math.atan2(c.y - ny, c.x - nx))
-      const st = await bot.state()
-      if (bot.getMaxDread() > 0) fail(`retour vers l'indice 1 : le gardien s'est remanifesté (malaise ${bot.getMaxDread().toFixed(2)})`)
-      else if (st.apps[g.id].phase !== 'gone') fail(`retour vers l'indice 1 : phase ${st.apps[g.id].phase}`)
-      else ok('retour vers l’indice 1 : plus aucune apparition')
-      await bot.tap('Bouton A')
-      if (!(await bot.state()).message) fail('indice 1 illisible au second passage')
-      await bot.tap('Bouton A')
-    }
     await pickUp('casserole', 1)
+
+    // Une fois mais pas deux : on revient dans la première salle et on
+    // regarde de nouveau l'ouverture où l'ombre « porte » est passée
+    {
+      const porte = level.apparitions.find((a) => a.id === 'porte')
+      const before = await bot.state()
+      if (before.apps.porte.phase === 'idle') console.log('   ℹ ombre « porte » pas encore vue : repasse ignorée')
+      else {
+        await travel(bot, pf, 3, 4, 'retour première salle')
+        bot.resetDread()
+        const s1 = await bot.state()
+        await bot.turnTo(Math.atan2(porte.y - s1.y, porte.x - s1.x))
+        await page.waitForTimeout(800)
+        const st = await bot.state()
+        if (bot.getMaxDread() > 0 || st.apps.porte.phase !== 'gone') fail(`ombre « porte » remanifestée au second passage (phase ${st.apps.porte.phase}, malaise ${bot.getMaxDread().toFixed(2)})`)
+        else ok('second passage devant l’ouverture : plus aucune ombre')
+      }
+    }
     await readClue(2, 'TÉLÉ')
     await pickUp('tele', 2)
     await readClue(3, 'BROSSE')
     await pickUp('brosse', 3)
 
     const end = await bot.state()
-    if (end.closest < 1.2) fail(`la silhouette ${end.closestId} a été approchée à ${end.closest.toFixed(2)} case(s)`)
-    else ok(`silhouettes jamais atteintes (au plus près : ${end.closest.toFixed(2)} case)`)
-    const glimpses = Object.entries(end.apps).filter(([id]) => !id.startsWith('indice-')).map(([id, a]) => `${id}:${a.phase}`)
-    console.log(`   ℹ fugitifs : ${glimpses.join(', ')}`)
-    if (end.apps['couloir-noir'].phase === 'idle') fail('la silhouette du couloir noir n’a pas été aperçue')
+    if (end.closest < 2.8) fail(`l'ombre ${end.closestId} a été approchée à ${end.closest.toFixed(2)} case(s)`)
+    else ok(`ombres toujours lointaines (au plus près : ${end.closest.toFixed(2)} cases)`)
+    const tooClose = appeared.filter((a) => a.d < 3.5)
+    if (tooClose.length) fail(`ombres apparues trop près : ${tooClose.map((a) => `${a.id} à ${a.d.toFixed(1)}`).join(', ')}`)
+    if (appeared.length < 4) fail(`seulement ${appeared.length} ombre(s) aperçue(s) sur ${level.apparitions.length}`)
+    else ok(`${appeared.length}/${level.apparitions.length} ombres aperçues en chemin`)
+    const stillVisible = Object.entries(end.apps).filter(([, a]) => a.alpha > 0 || a.phase === 'in')
+    if (stillVisible.length) fail(`ombres encore visibles en fin de partie : ${stillVisible.map(([id]) => id).join(', ')}`)
 
     if (!end.done) fail('niveau non terminé après les 3 objets')
     await page.getByText('NIVEAU 1 TERMINÉ').waitFor({ timeout: 3000 }).then(() => ok('écran de victoire'), () => fail('écran de victoire absent'))

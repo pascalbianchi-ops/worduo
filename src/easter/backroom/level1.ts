@@ -33,14 +33,22 @@ const CLUES: Record<number, string> = {
   3: 'Des lettres tremblantes : « La BROSSE À DENTS a glissé là où la moquette est trempée, tout au sud. »',
 }
 
-// Silhouettes aperçues de loin, qui se dérobent dès qu'on les voit
-const GLIMPSES: Apparition[] = [
-  // tout au fond du couloir aux néons morts, elle recule dans le noir
-  { id: 'couloir-noir', kind: 'glimpse', x: 17.5, y: 1.5, dx: 1, dy: 0 },
-  // entre les piliers, elle glisse derrière l'un d'eux
-  { id: 'piliers', kind: 'glimpse', x: 21.5, y: 6.5, dx: 0, dy: 1 },
-  // au bout du long couloir du sud, elle s'efface dans la salle trempée
-  { id: 'couloir-sud', kind: 'glimpse', x: 2.5, y: 16.5, dx: 0, dy: -1 },
+// Ombres furtives, aperçues de loin en passant dans les lieux intrigants
+const FURTIVES: Apparition[] = [
+  // par l'ouverture de la première salle, une ombre file vers le couloir noir
+  { id: 'porte', kind: 'cross', x: 8.5, y: 3.5, dx: 0, dy: -1 },
+  // tout au bout du couloir aux néons morts, près de la casserole, elle fixe
+  { id: 'couloir-noir', kind: 'stare', x: 20.5, y: 1.5, dx: 0, dy: 0 },
+  // au carrefour, elle s'engouffre dans le couloir sans issue de l'indice 2
+  { id: 'carrefour', kind: 'cross', x: 8.5, y: 6.5, dx: 0, dy: 1 },
+  // au fond de la salle aux piliers, elle passe d'un pilier à l'autre
+  { id: 'piliers', kind: 'cross', x: 13.5, y: 8.5, dx: 1, dy: 0 },
+  // au bout du couloir de l'indice 3, elle attend
+  { id: 'impasse', kind: 'stare', x: 10.5, y: 11.5, dx: 0, dy: 0 },
+  // dans le long couloir du sud, elle traverse vers la salle trempée
+  { id: 'couloir-sud', kind: 'cross', x: 8.5, y: 16.5, dx: 0, dy: -1 },
+  // dans un coin de la salle trempée, elle observe puis se retire
+  { id: 'salle-trempee', kind: 'peek', x: 1.5, y: 13.5, dx: 0, dy: 1 },
 ]
 
 const ITEM_CHARS: Record<string, { id: ItemId; floor: FloorKind }> = {
@@ -89,14 +97,9 @@ export function loadLevel1(): Level {
   const first = clues.find((c) => c.id === 1)
   if (first) start.a = Math.atan2(first.y + 0.5 - start.y, first.x + 0.5 - start.x)
 
-  // Un gardien par indice, debout tout contre le mur, devant l'écriture
-  const free = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && walls[y * w + x] === 'none'
-  const guards: Apparition[] = clues.flatMap((c) => {
-    const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => free(c.x + dx, c.y + dy))
-    if (!n) return []
-    const [dx, dy] = n
-    return [{ id: `indice-${c.id}`, kind: 'guard' as const, x: c.x + dx + 0.5 - dx * 0.25, y: c.y + dy + 0.5 - dy * 0.25, dx: 0, dy: 0 }]
-  })
+  for (const a of FURTIVES) {
+    if (walls[Math.floor(a.y) * w + Math.floor(a.x)] !== 'none') throw new Error(`backroom: ombre ${a.id} dans un mur`)
+  }
 
-  return { w, h, walls, floors, clueAt, items, clues, start, apparitions: [...guards, ...GLIMPSES], raw: RAW }
+  return { w, h, walls, floors, clueAt, items, clues, start, apparitions: FURTIVES, raw: RAW }
 }

@@ -105,18 +105,15 @@ export class BackroomAudio {
     if (!this.ctx || this.ctx.state !== 'running') return
     try {
       if (ev === 'scare') {
-        // coup sec + crissement + accord dissonant qui s'effondre
+        // l'ombre qui fixait disparaît : coup sec, crissement, accord qui s'effondre
         this.tone('sine', 90, 30, 0.5, 0.9)
         this.noiseBurst(0.9, 3200, 260, 0.6, 2)
         this.tone('square', 184, 92, 1.1, 0.12)
         this.tone('square', 196, 87, 1.1, 0.12)
-      } else if (ev === 'vanish') {
-        // souffle aspiré, comme une silhouette qui se dissout
-        this.noiseBurst(0.45, 300, 4000, 0.35, 0.8)
       } else {
-        // craquement lointain
-        this.noiseBurst(0.25, 900, 500, 0.25, 6)
-        this.tone('triangle', 70, 55, 0.3, 0.2)
+        // une ombre se montre au loin : bruit sourd et craquement lointain
+        this.tone('sine', 70, 45, 0.35, 0.45)
+        this.noiseBurst(0.3, 900, 450, 0.22, 6)
       }
     } catch { /* ignore */ }
   }

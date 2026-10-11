@@ -124,9 +124,10 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
       audio.tick(s.dread)
       if (frame && img) {
         const time = now / 1000
-        // apparition : lumière coupée un instant, puis secousse qui s'amortit
-        const lights = s.sinceScare < 0.15 ? 0.12 : 1
-        const shake = s.sinceScare < 0.5 ? (Math.random() - 0.5) * 0.08 * (1 - s.sinceScare / 0.5) : 0
+        // une ombre se montre : les néons vacillent ; une ombre qui fixait
+        // disparaît : lumière coupée un instant, puis secousse qui s'amortit
+        const lights = s.sinceScare < 0.15 ? 0.12 : s.sinceAppear < 0.12 ? 0.5 : 1
+        const shake = s.sinceScare < 0.4 ? (Math.random() - 0.5) * 0.05 * (1 - s.sinceScare / 0.4) : 0
         renderFrame(frame, level, { x: s.x, y: s.y, a: s.a + shake }, sceneSprites(level, s, time), time, { lights, dread: s.dread })
         ctx.putImageData(img, 0, 0)
       }
