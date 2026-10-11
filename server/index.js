@@ -182,7 +182,9 @@ function broadcastState(io, r) {
   }
 }
 
-function leaveCurrentRoom(socket) {
+// voluntary : départ volontaire (game:leave). Si le salon se vide, il est
+// libéré tout de suite ; le délai de grâce ne sert qu'aux déconnexions subies.
+function leaveCurrentRoom(socket, { voluntary = false } = {}) {
   const info = socketInfo.get(socket.id)
   if (!info) return
   const { roomId, role } = info
@@ -191,7 +193,12 @@ function leaveCurrentRoom(socket) {
     r.players = Math.max(0, r.players - 1)
     if (role && r.roles[role] !== undefined) r.roles[role] = false
     if (r.players === 0) {
-      scheduleRoomDeletion(roomId)
+      if (voluntary) {
+        cancelRoomDeletion(roomId)
+        rooms.delete(roomId)
+      } else {
+        scheduleRoomDeletion(roomId)
+      }
     } else {
       // si l'hôte est parti, on ne recalcule pas vraiment — on laisse comme est
       // (ou on pourrait choisir le prochain connecté comme host)
@@ -511,7 +518,7 @@ io.on('connection', (socket) => {
     try {
       const info = socketInfo.get(socket.id)
       const r = info ? rooms.get(info.roomId) : null
-      leaveCurrentRoom(socket)
+      leaveCurrentRoom(socket, { voluntary: true })
       if (r) broadcastState(io, r)
       cb?.({ ok: true })
     } catch (e) {
