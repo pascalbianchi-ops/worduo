@@ -171,6 +171,22 @@ async function main() {
     await joinAs(page, 'Alice', room1, '🧠 Meneur')
     ok(`meneur en jeu, mot : ${await giverWord(page)}`)
 
+    // Lobby d'un autre joueur, jusqu'à la liste « Rooms disponibles »
+    const openLobby = async (gp, name) => {
+      await gp.getByRole('button', { name: 'Jouer' }).tap()
+      await gp.getByPlaceholder('Ton pseudo…').fill(name)
+      await gp.getByRole('button', { name: 'Jouer' }).tap()
+      await gp.getByRole('heading', { name: 'Rooms disponibles' }).waitFor()
+    }
+    const listed = (gp) => gp.locator('li', { hasText: room1 })
+
+    // Un joueur déjà au lobby voit le salon du meneur, qui attend un devineur
+    const observer = await newGuesser()
+    await openLobby(observer.gp, 'Carla')
+    await listed(observer.gp).waitFor({ timeout: 7000 }).then(
+      () => ok('avant : le salon du meneur est visible dans le lobby d’un autre joueur'),
+      () => fail('avant : le salon du meneur devrait être listé dans le lobby'))
+
     console.log('▶ Déclenchement de l’easter egg : le meneur quitte sa partie')
     await hintInput.fill('  BackRoom ')
     await page.getByRole('button', { name: /Envoyer/ }).tap()
@@ -181,6 +197,22 @@ async function main() {
     if (!logs.some((l) => l.includes('game:leave'))) fail('le meneur n’a pas quitté sa partie (pas de game:leave)')
     else ok('le meneur a quitté sa partie Worduo')
     await shot(page, '01-depart')
+
+    // Le salon ne doit plus être proposé : ni à un joueur arrivé après coup,
+    // ni (après rafraîchissement de la liste, toutes les 5 s) à celui déjà là
+    {
+      const late = await newGuesser()
+      await openLobby(late.gp, 'Dan')
+      await late.gp.waitForTimeout(1500) // premier chargement de la liste
+      if (await listed(late.gp).count()) fail('un nouveau joueur voit encore le salon du meneur parti')
+      else ok('nouveau joueur : salon du meneur absent du lobby')
+      await shot(late.gp, 'lobby-nouveau-joueur')
+      await late.ctx.close()
+    }
+    await listed(observer.gp).waitFor({ state: 'detached', timeout: 7000 }).then(
+      () => ok('joueur déjà au lobby : le salon disparaît au rafraîchissement'),
+      () => fail('le salon du meneur reste affiché dans le lobby d’un joueur déjà présent'))
+    await observer.ctx.close()
 
     // Le salon est libéré : un devineur qui le rejoint arrive dans un salon
     // neuf (en attente), pas dans l'ancienne manche sans meneur.
