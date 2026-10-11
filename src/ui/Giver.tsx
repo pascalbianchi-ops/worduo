@@ -125,8 +125,10 @@ export function Giver() {
 
     const send = async () => {
         if (!hint.trim() || sendingHint) return
-        // Easter egg : intercepté ici, rien n'est envoyé au serveur
-        if (isBackroomTrigger(hint)) {
+        // Easter egg : intercepté ici, rien n'est envoyé au serveur. Seulement
+        // si le meneur est seul dans le salon (players compte meneur + devineur) :
+        // avec un devineur en jeu, « backroom » reste un indice comme un autre.
+        if (isBackroomTrigger(hint) && (state.players ?? 0) < 2) {
             setHint('')
             setShowBackroom(true)
             return
