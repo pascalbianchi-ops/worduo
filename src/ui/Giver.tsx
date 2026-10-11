@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, Suspense } from 'react'
 import { useGame } from '../state/GameContext'
 import { api } from '../lib/api'
 import { EndActions } from './EndActions'
 import { VersionBadge } from './VersionBadge'
+import { BackroomGame, isBackroomTrigger } from '../easter/backroom'
 
 
 function Confetti() {
@@ -40,6 +41,7 @@ export function Giver() {
     // l'historique complet des indices envoyés pendant la manche en cours,
     // pour affichage côte à côte avec les propositions du devineur.
     const [hintHistory, setHintHistory] = useState<string[]>([])
+    const [showBackroom, setShowBackroom] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -123,6 +125,12 @@ export function Giver() {
 
     const send = async () => {
         if (!hint.trim() || sendingHint) return
+        // Easter egg : intercepté ici, rien n'est envoyé au serveur
+        if (isBackroomTrigger(hint)) {
+            setHint('')
+            setShowBackroom(true)
+            return
+        }
         setSendingHint(true)
         setHintSentOk(false)
 
@@ -252,6 +260,12 @@ export function Giver() {
                     </div>
                 )}
             </div>
+
+            {showBackroom && (
+                <Suspense fallback={null}>
+                    <BackroomGame onClose={() => setShowBackroom(false)} />
+                </Suspense>
+            )}
 
             {ended && (
                 <div className="overlay">
