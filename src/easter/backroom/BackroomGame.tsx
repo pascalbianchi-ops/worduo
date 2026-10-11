@@ -3,12 +3,30 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { loadLevel1 } from './level1'
 import { newGame, update, action, type Input, type GameState } from './game'
-import { renderFrame, type Frame } from './raycaster'
-import { SPRITES, STEX } from './textures'
+import { renderFrame, type Frame, type Sprite } from './raycaster'
+import { SPRITES, SPRITE_SCALE, STEX, SHADOW_FRAMES, SHADOW_SCALE } from './textures'
 import { Controls } from './Controls'
-import { ITEM_LABEL, type ItemId } from './types'
+import { BackroomAudio } from './audio'
+import { ITEM_LABEL, type ItemId, type Level } from './types'
 
 const RES_H = 120 // hauteur interne en pixels : rendu volontairement pixelisé
+const MUTE_KEY = 'worduo:backroom:muted'
+
+function sceneSprites(level: Level, s: GameState, time: number): Sprite[] {
+  const list: Sprite[] = level.items
+    .filter((it) => !s.found.includes(it.id))
+    .map((it) => {
+      const frames = SPRITES[it.id]
+      return { tex: frames[Math.floor(time * 12) % frames.length], x: it.x, y: it.y, scale: SPRITE_SCALE[it.id], alpha: 1, bob: true, bright: false }
+    })
+  for (const st of Object.values(s.apps)) {
+    if (st.alpha <= 0) continue
+    // tressaillement irrégulier
+    const f = Math.floor(time * 5 + Math.sin(time * 1.7) * 2) & 3
+    list.push({ tex: SHADOW_FRAMES[f], x: st.x, y: st.y, scale: SHADOW_SCALE, alpha: st.alpha, bob: false, bright: true })
+  }
+  return list
+}
 
 type Hud = { found: ItemId[]; message: string | null; prompt: string | null; done: boolean }
 
@@ -42,6 +60,13 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
   const [hud, setHud] = useState<Hud>(() => hudOf(game.current))
   const hudRef = useRef(hud)
   const [portrait, setPortrait] = useState(() => window.innerHeight > window.innerWidth)
+  const [audio] = useState(() => new BackroomAudio())
+  const [muted, setMuted] = useState(() => { try { return localStorage.getItem(MUTE_KEY) === '1' } catch { return false } })
+  useEffect(() => {
+    audio.setMuted(muted)
+    try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0') } catch { /* ignore */ }
+  }, [audio, muted])
+  useEffect(() => () => audio.dispose(), [audio])
 
   const syncHud = () => {
     const next = hudOf(game.current)
@@ -95,8 +120,14 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
       last = now
       const s = game.current
       update(level, s, input, dt)
+      for (const ev of s.events.splice(0)) audio.play(ev)
+      audio.tick(s.dread)
       if (frame && img) {
-        renderFrame(frame, level, s, level.items.filter((it) => !s.found.includes(it.id)), now / 1000)
+        const time = now / 1000
+        // apparition : lumière coupée un instant, puis secousse qui s'amortit
+        const lights = s.sinceScare < 0.15 ? 0.12 : 1
+        const shake = s.sinceScare < 0.5 ? (Math.random() - 0.5) * 0.08 * (1 - s.sinceScare / 0.5) : 0
+        renderFrame(frame, level, { x: s.x, y: s.y, a: s.a + shake }, sceneSprites(level, s, time), time, { lights, dread: s.dread })
         ctx.putImageData(img, 0, 0)
       }
       syncHud()
@@ -114,6 +145,7 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
       ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
     }
     const down = (e: KeyboardEvent) => {
+      audio.unlock()
       if (e.code === 'Escape') { onClose(); return }
       if (e.code === 'Space' || e.code === 'KeyE' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) doAction(); return }
       const k = keys[e.code]
@@ -135,9 +167,13 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
     w.__backroom = {
       get state() {
         const s = game.current
-        return { x: s.x, y: s.y, a: s.a, found: [...s.found], message: s.message, prompt: s.prompt, done: s.done }
+        return {
+          x: s.x, y: s.y, a: s.a, found: [...s.found], message: s.message, prompt: s.prompt, done: s.done,
+          dread: s.dread, closest: s.closest, closestId: s.closestId,
+          apps: Object.fromEntries(Object.entries(s.apps).map(([id, st]) => [id, { phase: st.phase, x: st.x, y: st.y, alpha: st.alpha }])),
+        }
       },
-      level: { raw: level.raw, items: level.items, clues: level.clues.map(({ id, x, y }) => ({ id, x, y })) },
+      level: { raw: level.raw, items: level.items, clues: level.clues.map(({ id, x, y }) => ({ id, x, y })), apparitions: level.apparitions },
     }
     return () => { delete w.__backroom }
   }, [level])
@@ -146,6 +182,9 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
     <div
       role="dialog"
       aria-label="Backroom"
+      // iOS n'active le son qu'après un geste : le premier toucher le démarre
+      onPointerDownCapture={() => audio.unlock()}
+      onPointerUpCapture={() => audio.unlock()}
       style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', overflow: 'hidden', fontFamily: font, color: '#ffe2a8' }}
     >
       <canvas
@@ -158,6 +197,19 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
         {level.items.map((it) => <ItemIcon key={it.id} id={it.id} found={hud.found.includes(it.id)} />)}
         <span style={{ marginLeft: 6, fontWeight: 700, textShadow: '1px 1px 0 #000' }}>{hud.found.length}/{level.items.length}</span>
       </div>
+
+      <button
+        aria-label={muted ? 'Activer le son' : 'Couper le son'}
+        onClick={() => setMuted((m) => !m)}
+        style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', right: 'calc(env(safe-area-inset-right, 0px) + 60px)', width: 40, height: 40, background: 'rgba(0,0,0,.55)', color: '#ffe2a8', border: '2px solid rgba(255,210,130,.5)', fontFamily: font, fontSize: 16, cursor: 'pointer' }}
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden style={{ display: 'block', margin: 'auto' }}>
+          <path d="M3 7h3l4-3v12l-4-3H3z" fill="currentColor" />
+          {muted
+            ? <path d="M13 7l5 6M18 7l-5 6" stroke="currentColor" strokeWidth="2" />
+            : <path d="M13 6.5q3 3.5 0 7M15.5 4.5q5 5.5 0 11" stroke="currentColor" strokeWidth="1.6" fill="none" />}
+        </svg>
+      </button>
 
       <button
         aria-label="Quitter le niveau"

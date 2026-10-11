@@ -37,7 +37,15 @@ function startServer(logs) {
 
 // ————————— Pilotage —————————
 function makeBot(page) {
-  const state = () => page.evaluate(() => window.__backroom?.state)
+  // Garde la trace du malaise maximal observé (remis à zéro par resetDread)
+  let maxDread = 0
+  const state = async () => {
+    const s = await page.evaluate(() => window.__backroom?.state)
+    if (s) maxDread = Math.max(maxDread, s.dread)
+    return s
+  }
+  const resetDread = () => { maxDread = 0 }
+  const getMaxDread = () => maxDread
   const btn = (name) => page.getByRole('button', { name, exact: true })
 
   // Appui maintenu : un vrai doigt ne peut pas être « tenu » avec l'API
@@ -85,7 +93,7 @@ function makeBot(page) {
     throw new Error(`bloqué en (${s.x.toFixed(2)}, ${s.y.toFixed(2)}) en route vers (${tx}, ${ty})`)
   }
 
-  return { state, hold, tap, turnTo, walkTo }
+  return { state, hold, tap, turnTo, walkTo, resetDread, getMaxDread }
 }
 
 function pathfinder(raw) {
@@ -245,15 +253,53 @@ async function main() {
     await dialog.waitFor()
     await page.waitForFunction(() => window.__backroom)
     ok('relancé depuis une nouvelle partie')
+    // Bouton son
+    const soundBtn = page.getByRole('button', { name: /le son/ })
+    const label0 = await soundBtn.getAttribute('aria-label')
+    await soundBtn.tap()
+    const label1 = await soundBtn.getAttribute('aria-label')
+    if (label0 === label1) fail('le bouton son ne bascule pas')
+    else ok(`bouton son : « ${label0} » → « ${label1} »`)
+    await soundBtn.tap()
 
     const level = await page.evaluate(() => window.__backroom.level)
     const pf = pathfinder(level.raw)
     const clue = (id) => level.clues.find((c) => c.id === id)
     const item = (id) => level.items.find((i) => i.id === id)
 
+    const guard = (id) => level.apparitions.find((a) => a.id === `indice-${id}`)
+
+    // S'approche de l'indice en le regardant : le gardien doit surgir, faire
+    // monter le malaise, puis s'évanouir avant d'être atteint.
+    async function confrontGuard(id, nx, ny) {
+      const g = guard(id)
+      const s0 = await bot.state()
+      if (s0.apps[g.id].phase !== 'idle') return fail(`gardien ${id} déjà déclenché avant l'approche (${s0.apps[g.id].phase})`)
+      const path = pf.bfs(Math.floor(s0.x), Math.floor(s0.y), nx, ny)
+      if (path.length > 3) {
+        const [ax, ay] = path[path.length - 3]
+        await travel(bot, pf, ax, ay, `approche indice ${id}`)
+      }
+      const s1 = await bot.state()
+      await bot.turnTo(Math.atan2(g.y - s1.y, g.x - s1.x))
+      for (let i = 0; i < 25; i++) {
+        const st = await bot.state()
+        if (st.apps[g.id].phase !== 'idle') break
+        await bot.hold('Avancer', 80)
+      }
+      const st = await bot.state()
+      if (st.apps[g.id].phase === 'idle') return fail(`gardien de l'indice ${id} non déclenché`)
+      await page.waitForTimeout(350)
+      await shot(page, `apparition-${id}`)
+      const st2 = await bot.state()
+      if (st2.dread <= 0.1) fail(`gardien ${id} : malaise trop faible (${st2.dread.toFixed(2)})`)
+      else ok(`gardien de l'indice ${id} surgit (malaise ${st2.dread.toFixed(2)})`)
+    }
+
     async function readClue(id, keyword) {
       const c = clue(id)
       const [nx, ny] = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([x, y]) => pf.free(x, y))
+      await confrontGuard(id, nx, ny)
       await travel(bot, pf, nx, ny, `indice ${id}`)
       await bot.turnTo(Math.atan2(c.y - ny, c.x - nx))
       const s = await bot.state()
@@ -270,6 +316,10 @@ async function main() {
       if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 0.01) fail('le joueur bouge alors qu’un message est affiché')
       await bot.tap('Bouton A')
       if ((await bot.state()).message) fail(`indice ${id} : le message ne se ferme pas avec A`)
+      const after = await bot.state()
+      const ph = after.apps[`indice-${id}`].phase
+      if (!['vanish', 'gone'].includes(ph)) fail(`gardien ${id} : attendu évanoui en insistant, phase ${ph}`)
+      else ok(`gardien ${id} évanoui avant d'être atteint`)
     }
 
     async function pickUp(id, n) {
@@ -300,6 +350,27 @@ async function main() {
 
     console.log('▶ Partie')
     await readClue(1, 'CASSEROLE')
+
+    // Une fois mais pas deux : on s'éloigne puis on revient lire le même mur
+    {
+      const c = clue(1)
+      const [nx, ny] = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([x, y]) => pf.free(x, y))
+      await travel(bot, pf, nx + 3, ny, 'éloignement')
+      await page.waitForTimeout(600)
+      bot.resetDread()
+      const g = guard(1)
+      const s1 = await bot.state()
+      await bot.turnTo(Math.atan2(g.y - s1.y, g.x - s1.x))
+      await travel(bot, pf, nx, ny, 'retour indice 1')
+      await bot.turnTo(Math.atan2(c.y - ny, c.x - nx))
+      const st = await bot.state()
+      if (bot.getMaxDread() > 0) fail(`retour vers l'indice 1 : le gardien s'est remanifesté (malaise ${bot.getMaxDread().toFixed(2)})`)
+      else if (st.apps[g.id].phase !== 'gone') fail(`retour vers l'indice 1 : phase ${st.apps[g.id].phase}`)
+      else ok('retour vers l’indice 1 : plus aucune apparition')
+      await bot.tap('Bouton A')
+      if (!(await bot.state()).message) fail('indice 1 illisible au second passage')
+      await bot.tap('Bouton A')
+    }
     await pickUp('casserole', 1)
     await readClue(2, 'TÉLÉ')
     await pickUp('tele', 2)
@@ -307,6 +378,12 @@ async function main() {
     await pickUp('brosse', 3)
 
     const end = await bot.state()
+    if (end.closest < 1.2) fail(`la silhouette ${end.closestId} a été approchée à ${end.closest.toFixed(2)} case(s)`)
+    else ok(`silhouettes jamais atteintes (au plus près : ${end.closest.toFixed(2)} case)`)
+    const glimpses = Object.entries(end.apps).filter(([id]) => !id.startsWith('indice-')).map(([id, a]) => `${id}:${a.phase}`)
+    console.log(`   ℹ fugitifs : ${glimpses.join(', ')}`)
+    if (end.apps['couloir-noir'].phase === 'idle') fail('la silhouette du couloir noir n’a pas été aperçue')
+
     if (!end.done) fail('niveau non terminé après les 3 objets')
     await page.getByText('NIVEAU 1 TERMINÉ').waitFor({ timeout: 3000 }).then(() => ok('écran de victoire'), () => fail('écran de victoire absent'))
     await shot(page, '99-victoire')

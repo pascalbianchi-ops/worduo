@@ -8,6 +8,21 @@ export const ITEM_LABEL: Record<ItemId, string> = {
   tele: 'télé',
 }
 
+/**
+ * Silhouette sombre, jamais atteignable, qui n'apparaît qu'une fois :
+ * - guard   : surgit devant un indice quand on s'en approche, s'évanouit
+ *             si on insiste (ou s'efface si on recule)
+ * - glimpse : aperçue de loin, se dérobe aussitôt dans la direction (dx, dy)
+ */
+export type Apparition = {
+  id: string
+  kind: 'guard' | 'glimpse'
+  x: number
+  y: number
+  dx: number
+  dy: number
+}
+
 export type Level = {
   w: number
   h: number
@@ -19,5 +34,6 @@ export type Level = {
   items: { id: ItemId; x: number; y: number }[]
   clues: { id: number; x: number; y: number; text: string }[]
   start: { x: number; y: number; a: number }
+  apparitions: Apparition[]
   raw: string[]
 }

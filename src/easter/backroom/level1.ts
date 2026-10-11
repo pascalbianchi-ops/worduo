@@ -4,7 +4,7 @@
 //   #  mur            o  pilier           1 2 3  mur portant un indice
 //   .  moquette       w  moquette trempée d      couloir aux néons éteints
 //   P  départ         B  brosse à dents   C      casserole    T  télé
-import type { Level, ItemId, FloorKind, WallKind } from './types'
+import type { Level, ItemId, FloorKind, WallKind, Apparition } from './types'
 
 const RAW = [
   '########################',
@@ -32,6 +32,16 @@ const CLUES: Record<number, string> = {
   2: 'Quelqu’un a écrit : « La TÉLÉ grésille entre les piliers. Écoute le bruit blanc. »',
   3: 'Des lettres tremblantes : « La BROSSE À DENTS a glissé là où la moquette est trempée, tout au sud. »',
 }
+
+// Silhouettes aperçues de loin, qui se dérobent dès qu'on les voit
+const GLIMPSES: Apparition[] = [
+  // tout au fond du couloir aux néons morts, elle recule dans le noir
+  { id: 'couloir-noir', kind: 'glimpse', x: 17.5, y: 1.5, dx: 1, dy: 0 },
+  // entre les piliers, elle glisse derrière l'un d'eux
+  { id: 'piliers', kind: 'glimpse', x: 21.5, y: 6.5, dx: 0, dy: 1 },
+  // au bout du long couloir du sud, elle s'efface dans la salle trempée
+  { id: 'couloir-sud', kind: 'glimpse', x: 2.5, y: 16.5, dx: 0, dy: -1 },
+]
 
 const ITEM_CHARS: Record<string, { id: ItemId; floor: FloorKind }> = {
   B: { id: 'brosse', floor: 'wet' },
@@ -79,5 +89,14 @@ export function loadLevel1(): Level {
   const first = clues.find((c) => c.id === 1)
   if (first) start.a = Math.atan2(first.y + 0.5 - start.y, first.x + 0.5 - start.x)
 
-  return { w, h, walls, floors, clueAt, items, clues, start, raw: RAW }
+  // Un gardien par indice, debout tout contre le mur, devant l'écriture
+  const free = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && walls[y * w + x] === 'none'
+  const guards: Apparition[] = clues.flatMap((c) => {
+    const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => free(c.x + dx, c.y + dy))
+    if (!n) return []
+    const [dx, dy] = n
+    return [{ id: `indice-${c.id}`, kind: 'guard' as const, x: c.x + dx + 0.5 - dx * 0.25, y: c.y + dy + 0.5 - dy * 0.25, dx: 0, dy: 0 }]
+  })
+
+  return { w, h, walls, floors, clueAt, items, clues, start, apparitions: [...guards, ...GLIMPSES], raw: RAW }
 }

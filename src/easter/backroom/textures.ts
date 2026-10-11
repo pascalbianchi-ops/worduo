@@ -204,3 +204,34 @@ export const SPRITE_SCALE: Record<'brosse' | 'casserole' | 'tele', number> = {
   casserole: 0.4,
   tele: 0.6,
 }
+
+// ————————— Silhouette sombre —————————
+// Corps presque noir aux membres trop longs, deux yeux pâles. Trois images
+// légèrement différentes pour un tressaillement inquiétant.
+function shadowFrame(variant: number) {
+  return makeSprite(({ rect, line, px }) => {
+    const body = rgb(10, 8, 8), edge = rgb(26, 20, 18), eye = rgb(235, 228, 205)
+    const hx = 16 + (variant === 1 ? 1 : 0) // tête qui penche
+    rect(hx - 3, 1, 6, 7, body)
+    px(hx - 3, 1, 0); px(hx + 2, 1, 0) // tête arrondie
+    rect(15, 8, 2, 2, body) // cou
+    rect(10, 10, 12, 3, body) // épaules
+    rect(11, 13, 10, 8, body) // torse qui s'amincit
+    rect(12, 21, 8, 3, body)
+    // bras trop longs, jusqu'aux genoux
+    const sway = variant === 2 ? 1 : 0
+    line(10, 11, 8 - sway, 27, body); line(11, 11, 9 - sway, 27, body)
+    line(21, 11, 23 + sway, 27, body); line(20, 11, 22 + sway, 27, body)
+    px(7 - sway, 28, edge); px(24 + sway, 28, edge) // doigts
+    // jambes
+    rect(13, 24, 2, 8, body); rect(17, 24, 2, 8, body)
+    // contour un peu moins noir pour la lisibilité sur fond sombre
+    line(10, 10, 21, 10, edge)
+    // yeux
+    px(hx - 2, 4, eye); px(hx + 1, 4, eye)
+    if (variant === 2) { px(hx - 2, 5, eye); px(hx + 1, 5, eye) }
+  })
+}
+
+export const SHADOW_FRAMES = [shadowFrame(0), shadowFrame(1), shadowFrame(0), shadowFrame(2)]
+export const SHADOW_SCALE = 0.95
