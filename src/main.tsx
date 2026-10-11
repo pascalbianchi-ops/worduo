@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client'
 import './index.css'
 import { GameProvider } from './state/GameContext'
 import { App } from './ui/App'
+import { BackroomHost } from './easter/backroom'
 
 // Bloque le "tirer vers le bas pour actualiser" de Safari iOS, qui recharge
 // toute la page et fait perdre la partie en cours. overscroll-behavior en
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
         <GameProvider>
             <App />
+            <BackroomHost />
         </GameProvider>
     </React.StrictMode>
 )

@@ -123,6 +123,25 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(SHOTS, `${name}.png`) })
 }
 
+// Accueil (si affiché) → pseudo → salon → rôle
+async function joinAs(page, name, roomId, roleButton) {
+  const pseudo = page.getByPlaceholder('Ton pseudo…')
+  if (!(await pseudo.isVisible())) await page.getByRole('button', { name: 'Jouer' }).tap()
+  await pseudo.fill(name)
+  await page.getByRole('button', { name: 'Jouer' }).tap()
+  await page.getByPlaceholder('Nom du salon…').fill(roomId)
+  await page.getByRole('button', { name: roleButton }).tap()
+  await page.locator('.appbar').waitFor()
+}
+
+async function giverWord(page) {
+  await page.waitForFunction(() => {
+    const t = document.querySelector('.gradient-text')?.textContent?.trim()
+    return t && t !== '—'
+  })
+  return (await page.locator('.gradient-text').textContent()).trim()
+}
+
 // ————————— Scénario —————————
 async function main() {
   const logs = []
@@ -134,50 +153,66 @@ async function main() {
   page.on('pageerror', (e) => fail(`exception JS : ${e.message}`))
 
   try {
+    const room = (n) => `backroom-${n}-${Date.now()}`
+    const dialog = page.getByRole('dialog', { name: 'Backroom' })
+    const hintInput = page.getByPlaceholder('Écrire un indice percutant...')
+    const lobbyVisible = () => page.getByPlaceholder('Ton pseudo…').isVisible()
+    const newGuesser = async () => {
+      const ctx = await browser.newContext({ ...devices['iPhone 13 landscape'] })
+      const gp = await ctx.newPage()
+      gp.on('pageerror', (e) => fail(`exception JS (devineur) : ${e.message}`))
+      await gp.goto(`http://127.0.0.1:${PORT}`)
+      return { ctx, gp }
+    }
+
     console.log('▶ Entrée dans Worduo en meneur')
     await page.goto(`http://127.0.0.1:${PORT}`)
-    await page.getByRole('button', { name: 'Jouer' }).tap()
-    await page.getByPlaceholder('Ton pseudo…').fill('Alice')
-    await page.getByRole('button', { name: 'Jouer' }).tap()
-    const roomId = `backroom-${Date.now()}`
-    await page.getByPlaceholder('Nom du salon…').fill(roomId)
-    await page.getByRole('button', { name: '🧠 Meneur' }).tap()
-    await page.locator('.appbar').waitFor()
-    await page.waitForFunction(() => {
-      const t = document.querySelector('.gradient-text')?.textContent?.trim()
-      return t && t !== '—'
-    })
-    const word = (await page.locator('.gradient-text').textContent()).trim()
-    ok(`meneur en jeu, mot : ${word}`)
+    const room1 = room(1)
+    await joinAs(page, 'Alice', room1, '🧠 Meneur')
+    ok(`meneur en jeu, mot : ${await giverWord(page)}`)
 
-    console.log('▶ Déclenchement de l’easter egg')
-    const hintInput = page.getByPlaceholder('Écrire un indice percutant...')
+    console.log('▶ Déclenchement de l’easter egg : le meneur quitte sa partie')
     await hintInput.fill('  BackRoom ')
     await page.getByRole('button', { name: /Envoyer/ }).tap()
-    const dialog = page.getByRole('dialog', { name: 'Backroom' })
     await dialog.waitFor({ timeout: 5000 })
     await page.waitForFunction(() => window.__backroom)
     ok('overlay ouvert')
-    if ((await hintInput.inputValue()) !== '') fail('le champ d’indice n’a pas été vidé')
     await page.waitForTimeout(500)
+    if (!logs.some((l) => l.includes('game:leave'))) fail('le meneur n’a pas quitté sa partie (pas de game:leave)')
+    else ok('le meneur a quitté sa partie Worduo')
     await shot(page, '01-depart')
 
+    // Le salon est libéré : un devineur qui le rejoint arrive dans un salon
+    // neuf (en attente), pas dans l'ancienne manche sans meneur.
+    {
+      const { ctx, gp } = await newGuesser()
+      await joinAs(gp, 'Bob', room1, '🔍 Devineur')
+      const status = (await gp.locator('.appbar .pill', { hasText: 'Statut' }).textContent()).split(':').pop().trim()
+      if (status !== 'idle') fail('le salon du meneur n’a pas été libéré : le devineur retrouve l’ancienne manche')
+      else ok(`salon libéré (le devineur arrive dans un salon neuf : ${status})`)
+      await ctx.close()
+    }
+
     // Les boutons vides ne doivent rien faire
-    const before = await makeBot(page).state()
     const bot = makeBot(page)
+    const before = await bot.state()
     for (const b of ['Bouton B', 'Bouton C', 'Bouton D']) await bot.tap(b)
     const after = await bot.state()
     if (JSON.stringify(before) !== JSON.stringify(after)) fail(`B/C/D ont modifié l’état : ${JSON.stringify(after)}`)
     else ok('B, C, D sans effet')
 
-    // Fermer puis rouvrir : le jeu repart de zéro, sans erreur
+    // Fermer : retour au lobby, puis relancer depuis une nouvelle partie
     await page.getByRole('button', { name: 'Quitter le niveau' }).tap()
     await dialog.waitFor({ state: 'detached' })
+    if (!(await lobbyVisible())) fail('le meneur ne revient pas au lobby en quittant le Backroom')
+    else ok('fermeture → lobby')
+    await joinAs(page, 'Alice', room(2), '🧠 Meneur')
+    await giverWord(page)
     await hintInput.fill('backroom')
     await hintInput.press('Enter')
     await dialog.waitFor()
     await page.waitForFunction(() => window.__backroom)
-    ok('fermeture / réouverture')
+    ok('relancé depuis une nouvelle partie')
 
     const level = await page.evaluate(() => window.__backroom.level)
     const pf = pathfinder(level.raw)
@@ -253,33 +288,29 @@ async function main() {
 
     await page.getByRole('button', { name: 'Retour à Worduo' }).tap()
     await dialog.waitFor({ state: 'detached' })
-    const wordAfter = (await page.locator('.gradient-text').textContent()).trim()
-    if (wordAfter !== word) fail(`le mot Worduo a changé : ${word} → ${wordAfter}`)
-    else ok('retour à Worduo, partie intacte')
-    if (await page.evaluate(() => 'backroom' in window || '__backroom' in window)) fail('__backroom toujours exposé après fermeture')
+    if (!(await lobbyVisible())) fail('« Retour à Worduo » ne mène pas au lobby')
+    else ok('retour au lobby de Worduo')
+    if (await page.evaluate(() => '__backroom' in window)) fail('__backroom toujours exposé après fermeture')
 
-    // Le serveur n'a jamais reçu « backroom »
+    // Le serveur n'a jamais reçu « backroom » comme indice
     const leaked = logs.filter((l) => l.includes('game:hint'))
     if (leaked.length) fail(`indice envoyé au serveur : ${leaked.join(' | ')}`)
     else ok('aucun game:hint reçu par le serveur')
 
     console.log('▶ Avec un devineur en jeu, « backroom » est un indice normal')
-    const guesserCtx = await browser.newContext({ ...devices['iPhone 13 landscape'] })
-    const gp = await guesserCtx.newPage()
-    gp.on('pageerror', (e) => fail(`exception JS (devineur) : ${e.message}`))
-    await gp.goto(`http://127.0.0.1:${PORT}`)
-    await gp.getByRole('button', { name: 'Jouer' }).tap()
-    await gp.getByPlaceholder('Ton pseudo…').fill('Bob')
-    await gp.getByRole('button', { name: 'Jouer' }).tap()
-    await gp.getByPlaceholder('Nom du salon…').fill(roomId)
-    await gp.getByRole('button', { name: '🔍 Devineur' }).tap()
-    await gp.locator('.appbar').waitFor()
+    const room3 = room(3)
+    await joinAs(page, 'Alice', room3, '🧠 Meneur')
+    const word3 = await giverWord(page)
+    const { ctx: guesserCtx, gp } = await newGuesser()
+    await joinAs(gp, 'Bob', room3, '🔍 Devineur')
     await page.waitForTimeout(500) // le meneur reçoit l'arrivée du devineur
     await hintInput.fill('backroom')
     await page.getByRole('button', { name: /Envoyer/ }).tap()
     await page.waitForTimeout(1500)
     if (await dialog.isVisible()) fail('le Backroom s’est ouvert alors qu’un devineur joue')
     else ok('Backroom non déclenché')
+    if (!(await page.locator('.appbar').isVisible()) || (await giverWord(page)) !== word3) fail('le meneur a quitté sa partie alors qu’un devineur joue')
+    else ok('le meneur reste dans sa partie')
     if (!logs.some((l) => l.includes('game:hint'))) fail('« backroom » n’a pas été envoyé comme indice')
     const seen = await gp.locator('.card-sub', { hasText: 'Dernier indice' }).locator('b').textContent().catch(() => null)
     if (seen?.trim().toLowerCase() !== 'backroom') fail(`indice vu par le devineur : ${JSON.stringify(seen)}`)
