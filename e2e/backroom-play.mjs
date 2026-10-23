@@ -1,6 +1,9 @@
 // Joue l'easter egg « backroom » de bout en bout sur un iPhone émulé (WebKit,
 // paysage, tactile) : le meneur tape « backroom », le mini-FPS s'ouvre, puis
-// un bot lit les 3 indices et ramasse les 3 objets avec les contrôles tactiles.
+// un bot joue les niveaux 1 et 2 avec les contrôles tactiles et résout les
+// défis au doigt. Vérifie : dopamine jamais au-dessus de 90 % grâce aux objets,
+// sortie jamais ouverte sans effort plein, passage secret ouvert hors champ,
+// défis en moins d'une minute, mort quand la dopamine tombe à zéro.
 //
 // Usage : npx vite build && node e2e/backroom-play.mjs
 //   SHOTS_DIR=dossier pour les captures (défaut : <tmp>/backroom-shots)
@@ -63,7 +66,8 @@ function makeBot(page, onAppear = async () => { }) {
     const init = { pointerId: id, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1 }
     await btn(name).dispatchEvent('pointerdown', init)
     await page.waitForTimeout(ms)
-    await btn(name).dispatchEvent('pointerup', { ...init, buttons: 0 })
+    // le bouton peut avoir disparu entre-temps (sortie, défi) : on n'attend pas
+    await btn(name).dispatchEvent('pointerup', { ...init, buttons: 0 }, { timeout: 500 }).catch(() => { })
   }
 
   // Tap réel (touchstart/touchend + pointer events générés par WebKit)
@@ -103,9 +107,10 @@ function makeBot(page, onAppear = async () => { }) {
   return { state, hold, tap, turnTo, walkTo, resetDread, getMaxDread }
 }
 
-function pathfinder(raw) {
-  const H = raw.length, W = raw[0].length
-  const free = (x, y) => x >= 0 && y >= 0 && x < W && y < H && !/[#o0-9]/.test(raw[y][x])
+// Sur les murs actuels du niveau (window.__backroom.level)
+function pathfinder(level) {
+  const W = level.w, H = level.raw.length
+  const free = (x, y) => x >= 0 && y >= 0 && x < W && y < H && level.walls[y * W + x] === 'none'
   function bfs(sx, sy, gx, gy) {
     const prev = new Map([[`${sx},${sy}`, null]])
     const q = [[sx, sy]]
@@ -126,12 +131,22 @@ function pathfinder(raw) {
   return { free, bfs }
 }
 
-async function travel(bot, pf, gx, gy, label) {
-  const s = await bot.state()
-  const path = pf.bfs(Math.floor(s.x), Math.floor(s.y), gx, gy)
-  if (!path) throw new Error(`aucun chemin vers ${label}`)
-  for (const [x, y] of path.slice(1)) await bot.walkTo(x + 0.5, y + 0.5, 0.3)
-  await bot.walkTo(gx + 0.5, gy + 0.5, 0.2)
+// Une case murale est-elle (même en partie) dans le champ de vision ? Calcul
+// indépendant du jeu : demi-champ du rendu (atan 0.66) et ligne de vue.
+function cellVisible(level, p, idx) {
+  const W = level.w
+  const cx = idx % W, cy = Math.floor(idx / W)
+  const pts = [[cx + 0.5, cy + 0.5], [cx + 0.02, cy + 0.02], [cx + 0.98, cy + 0.02], [cx + 0.02, cy + 0.98], [cx + 0.98, cy + 0.98]]
+  const norm = (a) => Math.atan2(Math.sin(a), Math.cos(a))
+  return pts.some(([x, y]) => {
+    if (Math.abs(norm(Math.atan2(y - p.y, x - p.x) - p.a)) > Math.atan(0.66)) return false
+    const n = Math.ceil(Math.hypot(x - p.x, y - p.y) / 0.05)
+    for (let i = 1; i < n; i++) {
+      const k = Math.floor(p.y + ((y - p.y) * i) / n) * W + Math.floor(p.x + ((x - p.x) * i) / n)
+      if (k !== idx && level.walls[k] !== 'none') return false
+    }
+    return true
+  })
 }
 
 async function shot(page, name) {
@@ -248,10 +263,12 @@ async function main() {
       console.log(`   ✦ ombre « ${id} » aperçue à ${d.toFixed(1)} cases`)
       if (a.phase === 'in') await shot(page, `ombre-${id}`)
     })
+    // (la dopamine et l'horloge avancent d'elles-mêmes : on compare le reste)
+    const frozen = (s) => JSON.stringify({ x: s.x, y: s.y, a: s.a, prompt: s.prompt, challenge: s.challenge, attempts: s.exitAttempts, habit: s.habit, solved: s.solved })
     const before = await bot.state()
     for (const b of ['Bouton B', 'Bouton C', 'Bouton D']) await bot.tap(b)
     const after = await bot.state()
-    if (JSON.stringify(before) !== JSON.stringify(after)) fail(`B/C/D ont modifié l’état : ${JSON.stringify(after)}`)
+    if (frozen(before) !== frozen(after)) fail(`B/C/D ont modifié l’état : ${frozen(after)}`)
     else ok('B, C, D sans effet')
 
     // Fermer : retour au lobby, puis relancer depuis une nouvelle partie
@@ -275,98 +292,301 @@ async function main() {
     else ok(`bouton son : « ${label0} » → « ${label1} »`)
     await soundBtn.tap()
 
-    const level = await page.evaluate(() => window.__backroom.level)
-    const pf = pathfinder(level.raw)
-    const clue = (id) => level.clues.find((c) => c.id === id)
-    const item = (id) => level.items.find((i) => i.id === id)
+    // ————————— Partie : niveau 1 puis niveau 2 —————————
+    const st = () => bot.state()
+    const lvl = () => page.evaluate(() => window.__backroom.level)
+    const pct = (v) => `${Math.round(v * 100)} %`
 
-    async function readClue(id, keyword) {
-      const c = clue(id)
-      const [nx, ny] = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [c.x + dx, c.y + dy]).find(([x, y]) => pf.free(x, y))
-      await travel(bot, pf, nx, ny, `indice ${id}`)
-      await bot.turnTo(Math.atan2(c.y - ny, c.x - nx))
-      const s = await bot.state()
-      if (s.prompt !== 'A : lire le mur') fail(`indice ${id} : invite attendue « A : lire le mur », obtenu ${JSON.stringify(s.prompt)}`)
-      await bot.tap('Bouton A')
-      const msg = (await bot.state()).message
-      if (!msg?.includes(keyword)) fail(`indice ${id} : message ${JSON.stringify(msg)}`)
-      else ok(`indice ${id} lu : ${msg.slice(0, 60)}…`)
-      await shot(page, `indice-${id}`)
-      // Déplacement bloqué tant que le message est affiché
-      const p0 = await bot.state()
-      await bot.hold('Avancer', 300)
-      const p1 = await bot.state()
-      if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 0.01) fail('le joueur bouge alors qu’un message est affiché')
-      await bot.tap('Bouton A')
-      if ((await bot.state()).message) fail(`indice ${id} : le message ne se ferme pas avec A`)
+    // Surveillance continue : dopamine jamais au-dessus de 90 % grâce aux objets
+    // (elle démarre à 100 % : seule une hausse compte), sortie jamais ouverte sans effort plein
+    let last = null
+    let maxRise = 0
+    const watch = setInterval(async () => {
+      const s = await page.evaluate(() => window.__backroom?.state).catch(() => null)
+      if (!s) return
+      // un nouveau niveau (ou une nouvelle partie) repart de 100 % : ce n'est pas une hausse
+      const fresh = !last || s.level !== last.level || s.time < last.time
+      if (!fresh && s.dopamine > last.dopamine + 1e-4) maxRise = Math.max(maxRise, s.dopamine)
+      last = s
+      if ((s.doorOpen || s.rungs) && s.effort < 1 - 1e-6) fail(`sortie ouverte avec un effort de ${pct(s.effort)}`)
+    }, 100)
+
+    // Pathfinding sur les murs actuels (les passages s'ouvrent en cours de partie)
+    async function travel(gx, gy, label) {
+      const L = await lvl()
+      const pf = pathfinder(L)
+      const s = await st()
+      const path = pf.bfs(Math.floor(s.x), Math.floor(s.y), gx, gy)
+      if (!path) throw new Error(`aucun chemin vers ${label}`)
+      for (const [x, y] of path.slice(1)) {
+        await bot.walkTo(x + 0.5, y + 0.5, 0.3)
+        if ((await st()).status !== 'play') return
+      }
+      await bot.walkTo(gx + 0.5, gy + 0.5, 0.2)
     }
 
-    async function pickUp(id, n) {
-      const it = item(id)
-      // Capture en approche, à deux cases, pour vérifier que l'objet est visible
-      const s0 = await bot.state()
-      const path = pf.bfs(Math.floor(s0.x), Math.floor(s0.y), Math.floor(it.x), Math.floor(it.y))
-      if (path && path.length > 3) {
-        const [ax, ay] = path[path.length - 3]
-        await travel(bot, pf, ax, ay, `approche ${id}`)
-        await bot.turnTo(Math.atan2(it.y - (ay + 0.5), it.x - (ax + 0.5)))
-        await page.waitForTimeout(150)
-        await shot(page, `approche-${id}`)
-      }
-      await travel(bot, pf, Math.floor(it.x), Math.floor(it.y), id)
-      await shot(page, `objet-${id}`)
-      const s = await bot.state()
-      if (!s.prompt?.startsWith('A : ramasser')) fail(`${id} : invite de ramassage absente (${JSON.stringify(s.prompt)})`)
-      await bot.tap('Bouton A')
-      const s2 = await bot.state()
-      if (!s2.found.includes(id)) fail(`${id} non ramassé`)
-      else ok(`${id} ramassé (${s2.found.length}/3)`)
-      if (n < 3) {
-        if (!s2.message) fail(`${id} : pas de message de confirmation`)
+    /** Se poste devant un mur (borne, porte, échelle) et le regarde */
+    async function faceWall(wx, wy, label) {
+      const L = await lvl()
+      const pf = pathfinder(L)
+      const s = await st()
+      const cands = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [wx + dx, wy + dy]).filter(([x, y]) => pf.free(x, y))
+        .map((c) => ({ c, p: pf.bfs(Math.floor(s.x), Math.floor(s.y), c[0], c[1]) })).filter((o) => o.p).sort((a, b) => a.p.length - b.p.length)
+      if (!cands.length) throw new Error(`${label} inaccessible`)
+      const [nx, ny] = cands[0].c
+      await travel(nx, ny, label)
+      await bot.turnTo(Math.atan2(wy - ny, wx - nx))
+    }
+
+    async function eatUntil(target, maxSteps, label) {
+      for (;;) {
+        const s = await st()
+        if (s.dopamine >= target) return
+        const L = await lvl()
+        const pf = pathfinder(L)
+        const opts = s.items.filter((it) => it.state === 'idle' && it.behavior === 'still')
+          .map((it) => ({ it, p: pf.bfs(Math.floor(s.x), Math.floor(s.y), Math.floor(it.x), Math.floor(it.y)) }))
+          .filter((o) => o.p && o.p.length - 1 <= maxSteps).sort((a, b) => a.p.length - b.p.length)
+        if (!opts.length) { if (target < 1) console.log(`   · ${label} : plus aucun objet à ${maxSteps} pas (${pct(s.dopamine)})`); return }
+        const { it } = opts[0]
+        await travel(Math.floor(it.x), Math.floor(it.y), `${label} : ${it.kind}`)
+        const s1 = await st()
+        if (!s1.prompt?.startsWith('A : prendre')) fail(`${it.kind} : invite « A : prendre » absente (${JSON.stringify(s1.prompt)})`)
         await bot.tap('Bouton A')
+        const s2 = await st()
+        if (s2.dopamine > 0.9 + 1e-6 && s2.dopamine > s1.dopamine) fail(`dopamine à ${pct(s2.dopamine)} après ${it.kind}`)
+        console.log(`   · ${label} : ${it.kind} ${pct(s1.dopamine)} → ${pct(s2.dopamine)}${s2.items.find((x) => x.x === it.x && x.y === it.y).state === 'gone' ? '' : ' (PAS RAMASSÉ)'}`)
       }
     }
 
-    console.log('▶ Partie')
-    await readClue(1, 'CASSEROLE')
+    async function tryExit(expectOpen) {
+      const L = await lvl()
+      await faceWall(L.exit.x, L.exit.y, L.exit.kind)
+      const s0 = await st()
+      const want = L.exit.kind === 'door' ? 'A : ouvrir la porte' : 'A : monter'
+      if (s0.prompt !== want) fail(`invite attendue « ${want} », obtenu ${JSON.stringify(s0.prompt)}`)
+      await bot.tap('Bouton A')
+      const s = await st()
+      const opened = L.exit.kind === 'door' ? s.doorOpen : s.rungs
+      if (opened !== expectOpen) fail(`${L.exit.kind} : ${opened ? 'ouverte' : 'refusée'} avec un effort de ${pct(s.effort)}`)
+      if (!opened) {
+        const refused = page.getByTestId('sortie-refusee')
+        if (!(await refused.isVisible())) fail('sortie refusée sans retour visuel (dopamine barrée)')
+        const effortShown = await refused.getByTestId('refus-effort').count()
+        if (s.effortLit && !effortShown) fail('sortie refusée : la jauge d’effort n’est pas montrée')
+        if (await page.getByText(/dopamine|effort/i).count()) fail('la règle est expliquée par écrit')
+      }
+      ok(`${L.exit.kind} essai n°${s.exitAttempts} à ${pct(s.dopamine)} · effort ${pct(s.effort)} → ${opened ? 'OUVERTE' : 'refusée'}`)
+      return s
+    }
 
-    await pickUp('casserole', 1)
+    // ——— Défis : le bot les résout au doigt (taps réels) grâce à la solution exposée ———
+    async function tapEl(locator) {
+      const box = await locator.boundingBox()
+      if (!box) throw new Error('élément de défi introuvable')
+      if (box.width < 40 || box.height < 40) smallTargets.add(`${Math.round(box.width)}×${Math.round(box.height)}`)
+      await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2)
+      await page.waitForTimeout(140)
+    }
+    const smallTargets = new Set()
+    const win = page.getByTestId('challenge')
 
-    // Une fois mais pas deux : on revient dans la première salle et on
-    // regarde de nouveau l'ouverture où l'ombre « porte » est passée
+    async function solve(info) {
+      if (info.kind === 'rotation') {
+        for (let k = 0; k < info.rots.length; k++) {
+          for (let n = 0; n < (4 - info.rots[k]) % 4; n++) await tapEl(win.getByRole('button', { name: `Pièce ${k + 1}`, exact: true }))
+        }
+      } else if (info.kind === 'suite') await tapEl(win.getByRole('button', { name: `Choix ${info.answer + 1}`, exact: true }))
+      else if (info.kind === 'intrus') await tapEl(win.getByRole('button', { name: `Élément ${info.answer + 1}`, exact: true }))
+      else if (info.kind === 'lumieres') for (const k of info.presses) await tapEl(win.getByRole('button', { name: `Lumière ${k + 1}`, exact: true }))
+      else if (info.kind === 'allumettes') {
+        await tapEl(win.locator(`[data-slot="${info.from}"]`))
+        await tapEl(win.locator(`[data-slot="${info.to}"]`))
+      } else if (info.kind === 'balance') await tapEl(win.locator('button').filter({ hasText: /kg$/ }).nth(info.answer))
+      else if (info.kind === 'code') for (const d of info.code) await tapEl(win.getByRole('button', { name: `Chiffre ${d}`, exact: true }))
+    }
+
+    async function doBorne(num) {
+      const L = await lvl()
+      const b = L.bornes.find((x) => x.num === num)
+      await faceWall(b.x, b.y, `borne ${num}`)
+      const s0 = await st()
+      if (s0.prompt !== 'A : utiliser la borne') fail(`borne ${num} : invite ${JSON.stringify(s0.prompt)}`)
+      await bot.tap('Bouton A')
+      await win.waitFor({ timeout: 3000 })
+      await page.waitForTimeout(300)
+      await shot(page, `defi-n${L.num}-${num}-${b.challenge}`)
+      const t0 = Date.now()
+      const d0 = (await st()).dopamine
+      // pendant le défi la dopamine baisse, mais lentement ; la croix disparaît
+      const p0 = await st()
+      if (await page.getByRole('button', { name: 'Avancer', exact: true }).count()) fail('croix encore affichée pendant un défi')
+      await page.waitForTimeout(2000)
+      const rate = (d0 - (await st()).dopamine) / ((Date.now() - t0) / 1000)
+      const info = (await st()).challengeInfo
+      if (!info) throw new Error(`borne ${num} : défi sans solution exposée`)
+      await solve(info)
+      await win.waitFor({ state: 'detached', timeout: 4000 }).catch(() => fail(`défi ${b.challenge} : la fenêtre ne se ferme pas après la solution`))
+      const s = await st()
+      const secs = (Date.now() - t0) / 1000
+      if (Math.hypot(s.x - p0.x, s.y - p0.y) > 0.01) fail('le joueur a bougé pendant un défi')
+      if (!s.solved.includes(num)) fail(`borne ${num} non validée`)
+      if (secs > 60) fail(`défi ${b.challenge} : ${secs.toFixed(0)} s`)
+      ok(`défi ${b.challenge} réussi au doigt en ${secs.toFixed(1)} s · dopamine ${pct(s.dopamine)} · effort ${pct(s.effort)} (baisse pendant le défi ≈ ${(rate * 100).toFixed(2)} %/s)`)
+      return s
+    }
+
+    console.log('▶ Niveau 1')
     {
-      const porte = level.apparitions.find((a) => a.id === 'porte')
-      const before = await bot.state()
-      if (before.apps.porte.phase === 'idle') console.log('   ℹ ombre « porte » pas encore vue : repasse ignorée')
+      const L = await lvl()
+      if (L.num !== 1) fail(`on démarre au niveau ${L.num}`)
+      const s = await st()
+      if (s.effortLit || s.effort !== 0) fail('jauge d’effort allumée au départ')
+      if (s.dopamine < 0.95) fail(`dopamine au départ ${pct(s.dopamine)}`)
+      await shot(page, 'n1-depart')
+    }
+    // Les bornes sont inaccessibles au départ
+    {
+      const L = await lvl()
+      const pf = pathfinder(L)
+      const s = await st()
+      for (const b of L.bornes) {
+        const reach = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => pf.free(b.x + dx, b.y + dy) && pf.bfs(Math.floor(s.x), Math.floor(s.y), b.x + dx, b.y + dy))
+        if (reach) fail(`borne ${b.num} accessible dès le départ`)
+      }
+      ok('aucune borne accessible au départ')
+    }
+    // Parcours linéaire jusqu'à la porte, en mangeant ce qui est sur le chemin
+    await eatUntil(1, 2, 'chemin')
+    await tryExit(false)
+    await shot(page, 'n1-porte-refusee')
+    if ((await st()).gates.secret !== 'closed') fail('passage secret ouvert dès le 1er essai')
+    // Il repart manger jusqu'à ~90 %, retente : échec, et le passage s'ouvre en secret
+    for (let k = 0; k < 4 && (await st()).gates.secret !== 'open'; k++) {
+      await eatUntil(0.89, 20, 'recharge')
+      await tryExit(false)
+    }
+    {
+      const s = await st()
+      const L = await lvl()
+      if (s.gates.secret !== 'open' || !s.secretLog) fail('le passage secret ne s’est pas ouvert')
       else {
-        await travel(bot, pf, 3, 4, 'retour première salle')
-        bot.resetDread()
-        const s1 = await bot.state()
-        await bot.turnTo(Math.atan2(porte.y - s1.y, porte.x - s1.x))
-        await page.waitForTimeout(800)
-        const st = await bot.state()
-        if (bot.getMaxDread() > 0 || st.apps.porte.phase !== 'gone') fail(`ombre « porte » remanifestée au second passage (phase ${st.apps.porte.phase}, malaise ${bot.getMaxDread().toFixed(2)})`)
-        else ok('second passage devant l’ouverture : plus aucune ombre')
+        const log = s.secretLog
+        if (log.attempts !== 2) fail(`passage ouvert au ${log.attempts}e essai (attendu : au 2e échec, après être remonté à ~90 %)`)
+        // Vérification indépendante : aucune case du passage dans le champ de vision au moment de l'ouverture
+        const gate = L.gates.find((g) => g.id === 'secret')
+        const seen = gate.cells.some((idx) => cellVisible(L, log, idx))
+        if (seen) fail(`passage ouvert sous les yeux du joueur (a=${log.a.toFixed(2)})`)
+        else ok(`passage secret ouvert hors champ, au ${log.attempts}e essai, à ${pct(log.dopamine)} de dopamine`)
+        const diversion = s.items.find((it) => it.kind === 'tele' && it.behavior === 'still' && it.state === 'idle' && Math.hypot(it.x - 22.5, it.y - 12.5) < 0.1)
+        if (!diversion) fail('pas d’objet de diversion à l’ouverture du passage')
+        // En repartant de la porte, le joueur voit le passage et sa lueur bleue
+        await bot.turnTo(Math.PI)
+        await page.waitForTimeout(250)
+        await shot(page, 'n1-passage-secret-vu-en-repartant')
+        const s2 = await st()
+        const visible = gate.cells.some((idx) => cellVisible(L, s2, idx))
+        if (!visible) fail('le passage reste invisible en repartant de la porte')
+        else ok('en repartant de la porte, le passage est en vue')
       }
     }
-    await readClue(2, 'TÉLÉ')
-    await pickUp('tele', 2)
-    await readClue(3, 'BROSSE')
-    await pickUp('brosse', 3)
+    await doBorne(1)
+    {
+      const s = await st()
+      if (!s.effortLit) fail('jauge d’effort éteinte après le 1er défi')
+      if (s.gates.zone !== 'open') fail('la zone des défis suivants ne s’est pas ouverte')
+      else ok('effort allumé, nouvelle zone ouverte')
+      await shot(page, 'n1-zone-ouverte')
+    }
+    await tryExit(false) // la porte montre l'effort accompli (1/3)
+    await shot(page, 'n1-porte-effort-1-3')
+    await doBorne(2)
+    await eatUntil(0.6, 4, 'zone')
+    await doBorne(3)
+    {
+      const s = await st()
+      if (s.effort < 1 - 1e-6) fail(`effort ${pct(s.effort)} après les 3 défis`)
+    }
+    await tryExit(true)
+    await shot(page, 'n1-porte-ouverte')
+    {
+      const L = await lvl()
+      await travel(L.exit.x, L.exit.y, 'porte ouverte')
+      // droit dans la lumière, jusqu'à ce que la sortie s'enclenche
+      await bot.turnTo(Math.atan2(L.beyond.y - L.exit.y, L.beyond.x - L.exit.x))
+      for (let k = 0; k < 10 && (await st()).status === 'play' && (await st()).level === 1; k++) await bot.hold('Avancer', 200)
+      await page.waitForFunction(() => window.__backroom.state.level === 2, null, { timeout: 8000 })
+      await page.getByText('NIVEAU 2').waitFor({ timeout: 3000 }).then(() => ok('porte franchie → NIVEAU 2'), () => fail('pas d’écran « NIVEAU 2 »'))
+      await shot(page, 'n2-titre')
+      await page.waitForFunction(() => window.__backroom.state.between === 'none', null, { timeout: 5000 })
+    }
 
-    const end = await bot.state()
+    console.log('▶ Niveau 2')
+    {
+      const s = await st()
+      if (s.effort !== 0 || s.effortLit) fail('niveau 2 : la jauge d’effort ne repart pas de zéro')
+      if (s.dopamine < 0.99) fail(`niveau 2 : dopamine au départ ${pct(s.dopamine)}`)
+      await bot.turnTo(0)
+      await shot(page, 'n2-depart-echelle-au-loin')
+    }
+    await doBorne(1)
+    await tryExit(false)
+    await shot(page, 'n2-echelle-refusee')
+    for (const n of [2, 4, 3]) {
+      await doBorne(n)
+      const s = await st()
+      const lost = s.items.filter((it) => it.state === 'gone').length
+      console.log(`   ℹ objets avalés jusqu’ici : ${lost}`)
+    }
+    // effort grignoté : on rejoue la borne la plus proche
+    for (let k = 0; k < 6 && (await st()).effort < 1 - 1e-6; k++) {
+      console.log(`   ℹ effort grignoté (${pct((await st()).effort)}) : borne rejouée`)
+      await doBorne(3)
+    }
+    {
+      const s = await st()
+      const gone = s.items.filter((it) => it.state === 'gone')
+      ok(`niveau 2 : ${gone.length} objet(s) consommé(s) au contact en chemin`)
+    }
+    // échelle : effort plein → barreaux d'un coup, montée, fin
+    for (let k = 0; k < 4; k++) {
+      const s = await tryExit((await st()).effort >= 1 - 1e-6)
+      if (s.rungs) break
+      await doBorne(3)
+    }
+    await page.waitForTimeout(500)
+    await shot(page, 'n2-barreaux')
+    await page.getByText('TU ES SORTI').waitFor({ timeout: 6000 }).then(() => ok('montée à l’échelle → écran de fin'), () => fail('écran de fin absent'))
+    await shot(page, '99-fin')
+    {
+      const s = await st()
+      ok(`dopamine max après un objet : ${pct(s.maxAfterItem)} (hausse max observée : ${pct(maxRise)})`)
+      if (s.maxAfterItem > 0.9 + 1e-6 || maxRise > 0.9 + 1e-6) fail('dopamine au-dessus de 90 % grâce aux objets')
+      if (smallTargets.size) fail(`cibles tactiles trop petites dans les défis : ${[...smallTargets].join(', ')}`)
+      else ok('toutes les cibles tactiles des défis font au moins 40 px')
+    }
+
+    // Rejouer, puis se laisser mourir sans rien faire : écran d'extinction, recommencer le niveau
+    console.log('▶ Mort par manque de dopamine')
+    await page.getByRole('button', { name: 'Rejouer' }).tap()
+    await page.waitForFunction(() => window.__backroom.state.level === 1 && window.__backroom.state.status === 'play')
+    {
+      const t0 = Date.now()
+      await page.getByText('TU T’ES ÉTEINT').waitFor({ timeout: 70000 })
+      ok(`immobile, le joueur s’éteint après ${((Date.now() - t0) / 1000).toFixed(0)} s`)
+      await shot(page, 'mort')
+      await page.getByRole('button', { name: 'Recommencer le niveau' }).tap()
+      const s = await st()
+      if (s.status !== 'play' || s.dopamine < 0.99 || s.level !== 1) fail('« Recommencer le niveau » ne relance pas le niveau')
+      else ok('niveau relancé')
+    }
+    clearInterval(watch)
+
+    const end = await st()
     if (end.closest < 2.8) fail(`l'ombre ${end.closestId} a été approchée à ${end.closest.toFixed(2)} case(s)`)
-    else ok(`ombres toujours lointaines (au plus près : ${end.closest.toFixed(2)} cases)`)
     const tooClose = appeared.filter((a) => a.d < 3.5)
     if (tooClose.length) fail(`ombres apparues trop près : ${tooClose.map((a) => `${a.id} à ${a.d.toFixed(1)}`).join(', ')}`)
-    if (appeared.length < 4) fail(`seulement ${appeared.length} ombre(s) aperçue(s) sur ${level.apparitions.length}`)
-    else ok(`${appeared.length}/${level.apparitions.length} ombres aperçues en chemin`)
-    const stillVisible = Object.entries(end.apps).filter(([, a]) => a.alpha > 0 || a.phase === 'in')
-    if (stillVisible.length) fail(`ombres encore visibles en fin de partie : ${stillVisible.map(([id]) => id).join(', ')}`)
-
-    if (!end.done) fail('niveau non terminé après les 3 objets')
-    await page.getByText('NIVEAU 1 TERMINÉ').waitFor({ timeout: 3000 }).then(() => ok('écran de victoire'), () => fail('écran de victoire absent'))
-    await shot(page, '99-victoire')
+    ok(`${appeared.length} ombre(s) aperçue(s) en chemin`)
 
     const fps = await page.evaluate(() => new Promise((r) => {
       let n = 0; const t0 = performance.now()
@@ -375,9 +595,9 @@ async function main() {
     }))
     console.log(`   ℹ ${fps} images/s (WebKit headless, indicatif)`)
 
-    await page.getByRole('button', { name: 'Retour à Worduo' }).tap()
+    await page.getByRole('button', { name: 'Quitter le niveau' }).tap()
     await dialog.waitFor({ state: 'detached' })
-    if (!(await lobbyVisible())) fail('« Retour à Worduo » ne mène pas au lobby')
+    if (!(await lobbyVisible())) fail('quitter le Backroom ne mène pas au lobby')
     else ok('retour au lobby de Worduo')
     if (await page.evaluate(() => '__backroom' in window)) fail('__backroom toujours exposé après fermeture')
 
@@ -415,7 +635,7 @@ async function main() {
   }
 
   console.log(`\nCaptures : ${SHOTS}`)
-  console.log(problems.length ? `❌ ${problems.length} problème(s)` : '✅ niveau 1 terminé sans problème')
+  console.log(problems.length ? `❌ ${problems.length} problème(s)` : '✅ niveaux 1 et 2 terminés sans problème')
   process.exit(problems.length ? 1 : 0)
 }
 

@@ -1,7 +1,8 @@
 // Rendu raycasting façon Wolfenstein dans un tampon de pixels basse résolution.
-import type { Level } from './types'
+import type { Level, WallKind } from './types'
 import {
-  TEX, FTEX, STEX, WALL_TEX, PILLAR_TEX, CLUE_TEX, CARPET_TEX, WET_TEX, CEIL_TEX, LIGHT_TEX, DEAD_LIGHT_TEX,
+  TEX, FTEX, STEX, WALL_TEX, PILLAR_TEX, CARPET_TEX, WET_TEX, CEIL_TEX, LIGHT_TEX, DEAD_LIGHT_TEX,
+  DOOR_TEX, LADDER_TEX, LADDER_FULL_TEX, BORNE_TEX, BORNE_DONE_TEX, LIGHT_WALL_TEX, type WallTex,
 } from './textures'
 
 export type Camera = { x: number; y: number; a: number }
@@ -10,8 +11,25 @@ export type Frame = { w: number; h: number; buf: Uint32Array; zbuf: Float32Array
 /** Billboard posé au sol. bright : ignore le brouillard (silhouettes, yeux visibles) */
 export type Sprite = { tex: Uint32Array; x: number; y: number; scale: number; alpha: number; bob: boolean; bright: boolean }
 
-/** lights : multiplicateur d'éclairage (coupure lors d'une apparition) ; dread : malaise 0..1 */
-export type Fx = { lights: number; dread: number }
+/**
+ * lights : multiplicateur d'éclairage (coupure lors d'une apparition) ; dread : malaise 0..1
+ * solved : bornes réussies (écran vert) ; rungs : barreaux de l'échelle apparus
+ */
+export type Fx = { lights: number; dread: number; solved: number[]; rungs: boolean }
+
+const PLAIN: WallTex = { tex: WALL_TEX, glow: null }
+const PILLAR: WallTex = { tex: PILLAR_TEX, glow: null }
+
+function wallTex(level: Level, idx: number, kind: WallKind, fx: Fx): WallTex {
+  switch (kind) {
+    case 'pillar': return PILLAR
+    case 'door': return DOOR_TEX
+    case 'ladder': return fx.rungs ? LADDER_FULL_TEX : LADDER_TEX
+    case 'borne': return fx.solved.includes(level.borneAt[idx]) ? BORNE_DONE_TEX : BORNE_TEX
+    case 'light': return LIGHT_WALL_TEX
+    default: return PLAIN // 'gate' : un mur comme les autres tant qu'il est fermé
+  }
+}
 
 const FOV_PLANE = 0.66
 
@@ -108,8 +126,7 @@ export function renderFrame(frame: Frame, level: Level, cam: Camera, sprites: Sp
     }
     const perp = Math.max(0.05, side === 0 ? sdx - ddx : sdy - ddy)
     zbuf[x] = perp
-    const kind = level.walls[idx] ?? 'wall'
-    const tex = kind === 'clue' ? CLUE_TEX[level.clueAt[idx]] ?? WALL_TEX : kind === 'pillar' ? PILLAR_TEX : WALL_TEX
+    const { tex, glow } = wallTex(level, idx, level.walls[idx] ?? 'wall', fx)
     let wallX = side === 0 ? cam.y + perp * rdy : cam.x + perp * rdx
     wallX -= Math.floor(wallX)
     let texX = (wallX * TEX) | 0
@@ -124,7 +141,9 @@ export function renderFrame(frame: Frame, level: Level, cam: Camera, sprites: Sp
       // y0 est arrondi vers le haut de `top` : sans le max(0), la 1re ligne d'un
       // mur lointain lit un index négatif (pixel noir en haut du mur)
       const ty = Math.max(0, Math.min(TEX - 1, ((y - top) * texStep) | 0))
-      buf[y * W + x] = shade(tex[ty * TEX + texX], light)
+      const t = ty * TEX + texX
+      // écrans et lumière : visibles de loin, insensibles au brouillard
+      buf[y * W + x] = shade(tex[t], glow && glow[t] ? fx.lights : light)
     }
   }
 

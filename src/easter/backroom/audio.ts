@@ -2,7 +2,7 @@
 // sons de surprise, battements de cœur qui accélèrent avec le malaise.
 // iOS n'autorise le son qu'après un geste de l'utilisateur : unlock() est
 // appelé à chaque toucher, le premier démarre réellement l'audio.
-import type { AppEvent } from './apparitions'
+import type { GameEvent } from './game'
 
 type Ctx = AudioContext
 
@@ -101,7 +101,7 @@ export class BackroomAudio {
     o.stop(t + dur + 0.05)
   }
 
-  play(ev: AppEvent) {
+  play(ev: GameEvent) {
     if (!this.ctx || this.ctx.state !== 'running') return
     try {
       if (ev === 'scare') {
@@ -110,6 +110,24 @@ export class BackroomAudio {
         this.noiseBurst(0.9, 3200, 260, 0.6, 2)
         this.tone('square', 184, 92, 1.1, 0.12)
         this.tone('square', 196, 87, 1.1, 0.12)
+      } else if (ev === 'eat') {
+        // petit « ding » sucré
+        this.tone('triangle', 880, 1320, 0.12, 0.18)
+      } else if (ev === 'pop') {
+        this.tone('square', 520, 1040, 0.08, 0.08)
+      } else if (ev === 'nibble') {
+        this.tone('sawtooth', 300, 120, 0.3, 0.12)
+      } else if (ev === 'refuse') {
+        // porte verrouillée : chocs sourds
+        this.tone('sine', 110, 60, 0.18, 0.6)
+        this.tone('sine', 100, 55, 0.18, 0.5, 0.14)
+      } else if (ev === 'success') {
+        this.tone('triangle', 523, 523, 0.15, 0.2)
+        this.tone('triangle', 659, 659, 0.15, 0.2, 0.12)
+        this.tone('triangle', 784, 784, 0.3, 0.2, 0.24)
+      } else if (ev === 'open') {
+        this.tone('sine', 196, 392, 1.2, 0.3)
+        this.noiseBurst(1.2, 400, 3000, 0.12, 1)
       } else {
         // une ombre se montre au loin : bruit sourd et craquement lointain
         this.tone('sine', 70, 45, 0.35, 0.45)
