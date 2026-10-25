@@ -209,7 +209,8 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
     let frame: Frame | null = null
     let img: ImageData | null = null
     const resize = () => {
-      const aspect = Math.min(2.4, Math.max(1, window.innerWidth / Math.max(1, window.innerHeight)))
+      // en portrait : image 4:3 centrée plutôt qu'un carré étiré sur toute la hauteur
+      const aspect = window.innerHeight > window.innerWidth ? 4 / 3 : Math.min(2.4, Math.max(1, window.innerWidth / Math.max(1, window.innerHeight)))
       const w = Math.round(RES_H * aspect)
       canvas.width = w
       canvas.height = RES_H
@@ -332,7 +333,9 @@ export default function BackroomGame({ onClose }: { onClose: () => void }) {
       <div ref={sceneRef} style={{ position: 'absolute', inset: 0 }}>
         <canvas
           ref={canvasRef}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }}
+          style={portrait
+            ? { position: 'absolute', left: 0, top: '50%', width: '100%', height: 'auto', transform: 'translateY(-50%)', imageRendering: 'pixelated' }
+            : { position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }}
         />
       </div>
 
