@@ -10,7 +10,7 @@ import { ChallengeWindow } from './challenges'
 import { LAST_LEVEL } from './levels'
 import type { ChallengeId } from './types'
 
-const RES_H = 120 // hauteur interne en pixels : rendu volontairement pixelisé
+const RES_H = 180 // hauteur interne en pixels : rendu pixelisé façon 16 bits
 const MUTE_KEY = 'worduo:backroom:muted'
 /** durée d'affichage de la porte refusée (secousse, dopamine barrée, effort) */
 const REFUSED_SHOW = 2.4
