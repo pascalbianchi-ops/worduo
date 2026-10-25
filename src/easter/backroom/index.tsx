@@ -9,7 +9,8 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 const BackroomGame = lazy(() => import('./BackroomGame'))
 
 const listeners = new Set<(open: boolean) => void>()
-let isOpen = false
+// accès direct pour les tests : /?backroom ouvre le jeu sans passer par Worduo
+let isOpen = new URLSearchParams(window.location.search).has('backroom')
 
 function setOpen(open: boolean) {
   isOpen = open
