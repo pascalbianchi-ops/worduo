@@ -163,15 +163,17 @@ export function renderFrame(frame: Frame, level: Level, cam: Camera, sprites: Sp
     const bob = sp.bob ? (Math.sin(time * 3 + sp.x) * 0.03 * H) / tY : 0
     const bottom = half + (0.5 * H) / tY - bob
     const top = bottom - size
+    // le champ de vision fixe élargit la scène sur écran large : le sprite suit
+    const width = (size * W) / (2 * FOV_PLANE * H)
     const screenX = (W / 2) * (1 + tX / tY)
-    const left = screenX - size / 2
-    const x0 = Math.max(0, Math.floor(left)), x1 = Math.min(W, Math.ceil(left + size))
+    const left = screenX - width / 2
+    const x0 = Math.max(0, Math.floor(left)), x1 = Math.min(W, Math.ceil(left + width))
     const y0 = Math.max(0, Math.floor(top)), y1 = Math.min(H, Math.ceil(bottom))
     const cell = Math.floor(sp.y) * level.w + Math.floor(sp.x)
     const light = sp.bright ? 1 : fog(tY) * flick * (level.floors[cell] === 'dark' ? 0.55 : 1)
     for (let x = x0; x < x1; x++) {
       if (tY >= zbuf[x]) continue
-      const texX = Math.min(STEX - 1, (((x - left) / size) * STEX) | 0)
+      const texX = Math.min(STEX - 1, (((x - left) / width) * STEX) | 0)
       for (let y = y0; y < y1; y++) {
         const texY = Math.min(STEX - 1, (((y - top) / size) * STEX) | 0)
         const c = tex[texY * STEX + texX]
